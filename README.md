@@ -2,7 +2,6 @@
 
 [![CI](https://github.com/go-widgets/webcanvas/actions/workflows/ci.yml/badge.svg)](https://github.com/go-widgets/webcanvas/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/go-widgets/webcanvas.svg)](https://pkg.go.dev/github.com/go-widgets/webcanvas)
-[![Go Report Card](https://goreportcard.com/badge/github.com/go-widgets/webcanvas)](https://goreportcard.com/report/github.com/go-widgets/webcanvas)
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](LICENSE)
 
 Runs a [go-widgets](https://github.com/go-widgets) scene in a browser tab, on a
