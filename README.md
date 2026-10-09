@@ -26,7 +26,10 @@ func main() { webcanvas.Run("screen", myScene()) }
 `App` is `Size`, `Draw(buf []byte)`, and one method per kind of event, each
 reporting whether the scene changed so a repaint can be skipped when nothing
 did. A scene may also implement `Ticker`, `Animator`, `Resizer` or `Scroller`
-to be told about time, animation, a resized canvas or the wheel.
+to be told about time, animation, a resized canvas or the wheel, and
+`ModifierAware` to be told the state of Ctrl, Shift, Alt and Meta before every
+pointer, keyboard and wheel event -- without it Ctrl+A, Cmd+A and Alt+A all
+reach `KeyDown` as "a", and a Shift-click is a click.
 
 ## Where this came from
 

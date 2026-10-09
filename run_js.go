@@ -66,6 +66,11 @@ func Run(screenID string, app App) {
 		y := int((ev.Get("clientY").Float() - rect.Get("top").Float()) / sy)
 		return x, y
 	}
+	// mods reads the DOM event's modifier flags for a [ModifierAware] scene.
+	mods := func(ev js.Value) Modifiers {
+		return Modifiers{Ctrl: ev.Get("ctrlKey").Bool(), Shift: ev.Get("shiftKey").Bool(),
+			Alt: ev.Get("altKey").Bool(), Meta: ev.Get("metaKey").Bool()}
+	}
 	// listen wires a pointer event whose handler takes canvas-local coords and
 	// reports whether to repaint. The whole body (coords → handle → render) runs
 	// under the guard net, so a panic anywhere in it is logged, not fatal.
@@ -75,6 +80,7 @@ func Run(screenID string, app App) {
 				if len(args) == 0 {
 					return
 				}
+				tellModifiers(app, mods(args[0]))
 				x, y := coords(args[0])
 				if handle(x, y) {
 					render()
@@ -90,6 +96,7 @@ func Run(screenID string, app App) {
 			if len(args) == 0 || args[0].Get("button").Int() != 0 {
 				return
 			}
+			tellModifiers(app, mods(args[0]))
 			x, y := coords(args[0])
 			if app.Click(x, y) {
 				render()
@@ -106,6 +113,7 @@ func Run(screenID string, app App) {
 				return
 			}
 			args[0].Call("preventDefault")
+			tellModifiers(app, mods(args[0]))
 			x, y := coords(args[0])
 			if app.Context(x, y) {
 				render()
@@ -123,6 +131,7 @@ func Run(screenID string, app App) {
 			}
 			ev := args[0]
 			key := ev.Get("key").String()
+			tellModifiers(app, mods(ev))
 			var changed bool
 			if len([]rune(key)) == 1 && !ev.Get("ctrlKey").Bool() && !ev.Get("metaKey").Bool() && !ev.Get("altKey").Bool() {
 				changed = app.Char(key)
@@ -152,6 +161,7 @@ func Run(screenID string, app App) {
 				}
 				ev := args[0]
 				ev.Call("preventDefault")
+				tellModifiers(app, mods(ev))
 				x, y := coords(ev)
 				mode := ev.Get("deltaMode").Int()
 				dx := scrollRows(ev.Get("deltaX").Float(), mode)
