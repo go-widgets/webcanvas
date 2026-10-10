@@ -63,7 +63,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.2"
           check-latest: true
           cache: true
       # The runner image has Google Chrome; a test that skipped for want of it
