@@ -31,6 +31,13 @@ to be told about time, animation, a resized canvas or the wheel, and
 pointer, keyboard and wheel event -- without it Ctrl+A, Cmd+A and Alt+A all
 reach `KeyDown` as "a", and a Shift-click is a click.
 
+A scene whose content changes while nobody touches it -- a fetch that
+completes, a message that arrives -- implements `RepaintWith(request func())`
+(`RepaintAware`). `request` asks for one frame, from any goroutine, coalesced
+into the next animation frame. Without it such a scene shows its first frame
+until the next click. `browsertest/` checks this in headless Chrome, and fails
+when the hook is removed.
+
 ## Where this came from
 
 It was `internal/webcanvas` inside
