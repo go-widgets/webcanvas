@@ -55,3 +55,22 @@ jobs:
           GOOS=js      GOARCH=wasm  go build ./...
           GOOS=darwin  GOARCH=arm64 go build ./...
           GOOS=windows GOARCH=amd64 go build ./...
+
+  browser:
+    name: In a real browser (headless Chrome)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.1"
+          check-latest: true
+          cache: true
+      # The runner image has Google Chrome; a test that skipped for want of it
+      # would pass here and prove nothing, so the job requires the PASS line.
+      - name: The wasm host, driven by chromedp
+        working-directory: browsertest
+        run: |
+          set -o pipefail
+          CHROME="$(command -v google-chrome)" go test -count=1 -v ./... | tee browser.log
+          grep -q -- '--- PASS: TestRepaintWithFromAGoroutine' browser.log

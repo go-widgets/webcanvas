@@ -107,6 +107,19 @@ type Resizer interface {
 	Resize(w, h int) (rw, rh int)
 }
 
+// RepaintAware is an optional companion to [App]: a scene whose content can
+// change while nobody touches it -- a fetch that completes, a message that
+// arrives -- and that therefore needs a frame no event will cause.
+//
+// Before the first frame, [Run] hands it request. Calling request asks for one
+// frame at the next animation frame; it is safe from any goroutine, returns at
+// once, and coalesces: any number of calls before that frame is drawn give one
+// frame. The scene does its pending work at the start of [App.Draw] -- for a
+// go-widgets tree, draining an mvvm.Queue -- so the frame shows it.
+type RepaintAware interface {
+	RepaintWith(request func())
+}
+
 // Scroller is an optional companion to [App]: a scene with a scrollable region
 // (a docked list, an icon palette, an overflowing panel) implements it, and [Run]
 // installs a "wheel" listener that translates the browser's WheelEvent into

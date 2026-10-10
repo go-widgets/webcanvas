@@ -6,7 +6,10 @@
 
 package webcanvas
 
-import "syscall/js"
+import (
+	"sync/atomic"
+	"syscall/js"
+)
 
 // Run boots app onto the <canvas> whose id is screenID and never returns: it
 // sizes the canvas from [App.Size], blits [App.Draw] into it, and wires the DOM
@@ -48,6 +51,21 @@ func Run(screenID string, app App) {
 		app.Draw(local)
 		js.CopyBytesToJS(dst, local)
 		ctx.Call("putImageData", imageData, 0, 0)
+	}
+	// A [RepaintAware] scene gets a way to ask for a frame from any goroutine.
+	// One frame is in flight at most: the flag is cleared when it is drawn.
+	if ra, ok := app.(RepaintAware); ok {
+		var pending atomic.Bool
+		frame := js.FuncOf(func(_ js.Value, _ []js.Value) any {
+			pending.Store(false)
+			guard(render)
+			return nil
+		})
+		ra.RepaintWith(func() {
+			if pending.CompareAndSwap(false, true) {
+				js.Global().Call("requestAnimationFrame", frame)
+			}
+		})
 	}
 	render()
 	// Signal the host page that the first frame is painted, so a loading
