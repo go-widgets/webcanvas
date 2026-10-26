@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"strconv"
 )
 
 // App is a self-contained canvas scene. A host (the wasm [Run] loop, or a
@@ -118,6 +119,51 @@ type Resizer interface {
 // go-widgets tree, draining an mvvm.Queue -- so the frame shows it.
 type RepaintAware interface {
 	RepaintWith(request func())
+}
+
+// PixelRatioAware is an optional companion to [Resizer]: a scene that can
+// render at the display's device pixels implements it. [Run] then sizes the
+// canvas backing store to the canvas' CSS box × window.devicePixelRatio,
+// tells the scene the ratio before each Resize (which is handed device
+// pixels), and re-does both when the ratio changes (browser zoom, a window
+// moved to a display of another density). On a ratio-2 display the scene
+// draws twice the pixels in each direction instead of a 1× bitmap the
+// browser upscales into blocky, blurred text. A go-widgets scene typically
+// forwards the ratio to toolkit.SetMetricScale, which scales every metric and
+// re-renders the OpenType face.
+//
+// The page must give the canvas its CSS size (e.g. width: 100vw; height:
+// 100vh): the backing store no longer equals it. A scene that omits the
+// interface keeps rendering at CSS pixels, unchanged.
+type PixelRatioAware interface {
+	SetPixelRatio(ratio float64)
+}
+
+// The device pixel ratios Run accepts: a browser reports 0.25 (zoomed far
+// out) to 5 (zoomed far in on a dense display); anything outside, or not a
+// number, is treated as 1 rather than allocating a framebuffer from it.
+const (
+	minRatio = 0.25
+	maxRatio = 8
+)
+
+// normalRatio is the ratio Run renders at for a reported devicePixelRatio.
+func normalRatio(r float64) float64 {
+	if !(r >= minRatio && r <= maxRatio) { // also catches NaN
+		return 1
+	}
+	return r
+}
+
+// devicePixels is a CSS length in device pixels at ratio, at least 1.
+func devicePixels(css int, ratio float64) int {
+	return max(int(float64(css)*ratio), 1)
+}
+
+// resolutionQuery is the media query that matches the current ratio and
+// stops matching when it changes (MDN, Window.devicePixelRatio).
+func resolutionQuery(ratio float64) string {
+	return "(resolution: " + strconv.FormatFloat(ratio, 'f', -1, 64) + "dppx)"
 }
 
 // Scroller is an optional companion to [App]: a scene with a scrollable region

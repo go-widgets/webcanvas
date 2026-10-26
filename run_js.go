@@ -202,13 +202,24 @@ func Run(screenID string, app App) {
 	// not implement Resizer installs no listener and keeps its fixed Size forever
 	// (the gallery's behaviour is unchanged).
 	if rz, ok := app.(Resizer); ok {
+		// A [PixelRatioAware] scene renders at the display's device pixels: the
+		// backing store is the CSS box × devicePixelRatio (the page keeps the
+		// CSS size), so a Retina display shows crisp pixels instead of a 1×
+		// bitmap the browser upscales. Pointer coordinates already map through
+		// the bounding rect onto the backing store (see coords).
+		pr, _ := app.(PixelRatioAware)
+		ratio := 1.0
 		resize := func() {
 			cw := canvas.Get("clientWidth").Int()
 			ch := canvas.Get("clientHeight").Int()
 			if cw <= 0 || ch <= 0 {
 				return
 			}
-			w, h = rz.Resize(cw, ch)
+			if pr != nil {
+				ratio = normalRatio(js.Global().Get("devicePixelRatio").Float())
+				pr.SetPixelRatio(ratio)
+			}
+			w, h = rz.Resize(devicePixels(cw, ratio), devicePixels(ch, ratio))
 			canvas.Set("width", w)
 			canvas.Set("height", h)
 			local = make([]byte, 4*w*h)
@@ -223,6 +234,25 @@ func Run(screenID string, app App) {
 		// Fit the canvas to the viewport once, now, so the app opens full-page
 		// instead of at its intrinsic Size().
 		guard(resize)
+		if pr != nil {
+			// The ratio changes with browser zoom and when the window moves to a
+			// display of another density; a media query on the current ratio
+			// fires once when it stops matching, then the next one is installed
+			// (MDN, Window.devicePixelRatio).
+			var watch func()
+			watch = func() {
+				mq := js.Global().Call("matchMedia", resolutionQuery(ratio))
+				var cb js.Func
+				cb = js.FuncOf(func(_ js.Value, _ []js.Value) any {
+					mq.Call("removeEventListener", "change", cb)
+					guard(resize)
+					watch()
+					return nil
+				})
+				mq.Call("addEventListener", "change", cb)
+			}
+			watch()
+		}
 	}
 
 	// Optional fixed-cadence clock: only scenes with time-varying state ask for it.
