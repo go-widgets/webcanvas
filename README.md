@@ -31,6 +31,15 @@ to be told about time, animation, a resized canvas or the wheel, and
 pointer, keyboard and wheel event -- without it Ctrl+A, Cmd+A and Alt+A all
 reach `KeyDown` as "a", and a Shift-click is a click.
 
+**HiDPI.** A `Resizer` scene that also implements `PixelRatioAware` renders at
+the display's device pixels: the canvas backing store becomes its CSS box ×
+`window.devicePixelRatio`, the scene is told the ratio (a go-widgets scene
+forwards it to `toolkit.SetMetricScale`) and gets device pixels in `Resize`,
+and both follow browser zoom and moves between displays (a `matchMedia`
+resolution query, as MDN's `Window.devicePixelRatio` shows). Without it a
+Retina display upscales a 1× bitmap: blurred, stair-stepped text. The page
+gives the canvas its CSS size (`width: 100vw; height: 100vh`).
+
 A scene whose content changes while nobody touches it -- a fetch that
 completes, a message that arrives -- implements `RepaintWith(request func())`
 (`RepaintAware`). `request` asks for one frame, from any goroutine, coalesced
