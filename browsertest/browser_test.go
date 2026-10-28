@@ -105,4 +105,13 @@ func TestRepaintWithFromAGoroutine(t *testing.T) {
 	if later[0] != 255 || later[1] != 0 {
 		t.Fatalf("600 ms later the canvas is %v: the frame the scene asked for was never drawn", later)
 	}
+	// Layers: the closed bitmap drew nothing (the scene's red stays at 0,0)
+	// and did not stop the next layer, a green bitmap scaled into the corner.
+	corner, err := chromedp.Run(ctx, chromedp.Evaluate[[]int](`(() => { const d = document.getElementById("screen").getContext("2d").getImageData(6,6,1,1).data; return [d[0], d[1], d[2]]; })()`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if corner[0] != 0 || corner[1] != 255 || corner[2] != 0 {
+		t.Fatalf("the image layer's corner is %v, not green", corner)
+	}
 }
