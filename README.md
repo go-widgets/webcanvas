@@ -47,6 +47,23 @@ into the next animation frame. Without it such a scene shows its first frame
 until the next click. `browsertest/` checks this in headless Chrome, and fails
 when the hook is removed.
 
+**Images the browser already holds.** A scene can show frames a GPU rendered
+into an `ImageBitmap`, a video, or another canvas without copying their pixels
+through `Draw`'s buffer: it implements `Layers() []Layer` (`Layered`). Each
+layer is an opaque `Image` (`NewImage(jsValue)`), a rectangle in canvas
+pixels (device pixels for a `PixelRatioAware` scene) and an optional alpha.
+After every `Draw`, `Run` calls `drawImage` for each layer, in order, scaled
+into its rectangle with high-quality smoothing.
+
+Bounds and safety:
+- At most 64 layers are drawn per frame.
+- A layer with no image, an empty rectangle, a rectangle entirely off the canvas, or an alpha that is not in [0, 1] is skipped.
+- Each layer is drawn under its own recover net, so a closed `ImageBitmap`, which makes `drawImage` throw, costs only that layer.
+- The images remain the scene's: `Run` never closes or keeps them.
+
+`browsertest/` draws a closed bitmap, then a 2×2 green bitmap scaled into a
+4×4 corner, and reads the pixels back.
+
 ## Where this came from
 
 It was `internal/webcanvas` inside

@@ -51,6 +51,21 @@ func Run(screenID string, app App) {
 		app.Draw(local)
 		js.CopyBytesToJS(dst, local)
 		ctx.Call("putImageData", imageData, 0, 0)
+		// A [Layered] scene's images go over the frame, each under its own
+		// net: a closed ImageBitmap throws, and costs its own layer only.
+		for _, l := range layersOf(app, w, h) {
+			v, ok := l.Image.Handle().(js.Value)
+			if !ok {
+				continue
+			}
+			guard(func() {
+				ctx.Set("globalAlpha", l.Alpha)
+				ctx.Set("imageSmoothingEnabled", true)
+				ctx.Set("imageSmoothingQuality", "high")
+				ctx.Call("drawImage", v, l.X, l.Y, l.W, l.H)
+			})
+			ctx.Set("globalAlpha", 1)
+		}
 	}
 	// A [RepaintAware] scene gets a way to ask for a frame from any goroutine.
 	// One frame is in flight at most: the flag is cleared when it is drawn.
