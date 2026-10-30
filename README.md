@@ -47,6 +47,20 @@ into the next animation frame. Without it such a scene shows its first frame
 until the next click. `browsertest/` checks this in headless Chrome, and fails
 when the hook is removed.
 
+**Key positions and releases.** A scene that implements `KeyCode(code string)`
+(`KeyCodeAware`) is told each keyboard event's physical key, the DOM's
+`KeyboardEvent.code` ("KeyA", "ArrowUp", "ShiftLeft"), just before the event,
+the way `ModifierAware` is told the modifiers. The key ("a", "A", "é") is what
+was typed. Its code is where the key is, "not affected by the current
+keyboard layout or modifier state" (W3C UI Events), which is what a game, or a
+guest that expects key positions, needs. A code longer than 32 bytes is
+passed as "". A scene that implements `KeyUp(key string) bool` (`KeyUpper`)
+also gets key releases, with the same key values and the code and modifiers
+first. `Run` installs the keyup listener only for such a scene. Scenes that
+implement neither see exactly the events they did before. `browsertest/`
+types Shift+A and checks `char A KeyA shift=true` and
+`up A KeyA shift=true`.
+
 **Images the browser already holds.** A scene can show frames a GPU rendered
 into an `ImageBitmap`, a video, or another canvas without copying their pixels
 through `Draw`'s buffer: it implements `Layers() []Layer` (`Layered`). Each
