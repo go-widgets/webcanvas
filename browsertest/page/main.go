@@ -20,6 +20,9 @@ type scene struct {
 	// layers: a closed ImageBitmap (drawImage throws on it), then a green
 	// 2×2 one scaled into the bottom-right 4×4 corner, once both exist.
 	layers []webcanvas.Layer
+	// the code and Shift of the key event being delivered
+	code  string
+	shift bool
 }
 
 func (s *scene) Layers() []webcanvas.Layer { return s.layers }
@@ -71,8 +74,27 @@ func (s *scene) Click(int, int) bool   { return false }
 func (s *scene) Move(int, int) bool    { return false }
 func (s *scene) Release(int, int) bool { return false }
 func (s *scene) Context(int, int) bool { return false }
-func (s *scene) Char(string) bool      { return false }
-func (s *scene) KeyDown(string) bool   { return false }
+
+// Keys: every key event is recorded in window.__keys as
+// "kind key code shift", the code and modifiers told just before it.
+func (s *scene) Modifiers(m webcanvas.Modifiers) { s.shift = m.Shift }
+func (s *scene) KeyCode(code string)             { s.code = code }
+func (s *scene) record(kind, key string) bool {
+	shift := "shift=false"
+	if s.shift {
+		shift = "shift=true"
+	}
+	keys := js.Global().Get("__keys")
+	if keys.Type() != js.TypeObject {
+		keys = js.Global().Get("Array").New()
+		js.Global().Set("__keys", keys)
+	}
+	keys.Call("push", kind+" "+key+" "+s.code+" "+shift)
+	return false
+}
+func (s *scene) Char(key string) bool    { return s.record("char", key) }
+func (s *scene) KeyDown(key string) bool { return s.record("down", key) }
+func (s *scene) KeyUp(key string) bool   { return s.record("up", key) }
 
 func main() {
 	s := &scene{}

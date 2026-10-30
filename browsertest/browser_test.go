@@ -114,4 +114,25 @@ func TestRepaintWithFromAGoroutine(t *testing.T) {
 	if corner[0] != 0 || corner[1] != 255 || corner[2] != 0 {
 		t.Fatalf("the image layer's corner is %v, not green", corner)
 	}
+
+	// Keys: Shift+A typed. Each event comes with its physical code
+	// (KeyboardEvent.code) and its modifiers, the release included.
+	if _, err := chromedp.Run(ctx, chromedp.KeyEvent("A", chromedp.KeyModifiers(chromedp.ModifierShift))); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := chromedp.Run(ctx, chromedp.Evaluate[[]string](`window.__keys || []`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"char A KeyA shift=true": false, "up A KeyA shift=true": false}
+	for _, k := range keys {
+		if _, ok := want[k]; ok {
+			want[k] = true
+		}
+	}
+	for k, seen := range want {
+		if !seen {
+			t.Errorf("no %q among %q", k, keys)
+		}
+	}
 }

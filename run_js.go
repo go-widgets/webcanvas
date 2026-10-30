@@ -11,6 +11,14 @@ import (
 	"syscall/js"
 )
 
+// keyCode is a keyboard event's code ("" when the browser sets none).
+func keyCode(ev js.Value) string {
+	if c := ev.Get("code"); c.Type() == js.TypeString {
+		return c.String()
+	}
+	return ""
+}
+
 // Run boots app onto the <canvas> whose id is screenID and never returns: it
 // sizes the canvas from [App.Size], blits [App.Draw] into it, and wires the DOM
 // event listeners that drive [App.Click]/Move/Release/Context/Char/KeyDown.
@@ -165,6 +173,7 @@ func Run(screenID string, app App) {
 			ev := args[0]
 			key := ev.Get("key").String()
 			tellModifiers(app, mods(ev))
+			tellKeyCode(app, keyCode(ev))
 			var changed bool
 			if len([]rune(key)) == 1 && !ev.Get("ctrlKey").Bool() && !ev.Get("metaKey").Bool() && !ev.Get("altKey").Bool() {
 				changed = app.Char(key)
@@ -178,6 +187,25 @@ func Run(screenID string, app App) {
 		})
 		return nil
 	}))
+	// Optional key releases: a [KeyUpper] scene is told when a key goes up,
+	// with its modifiers and code first, as for a key going down.
+	if ku, ok := app.(KeyUpper); ok {
+		js.Global().Call("addEventListener", "keyup", js.FuncOf(func(_ js.Value, args []js.Value) any {
+			guard(func() {
+				if len(args) == 0 {
+					return
+				}
+				ev := args[0]
+				tellModifiers(app, mods(ev))
+				tellKeyCode(app, keyCode(ev))
+				if ku.KeyUp(ev.Get("key").String()) {
+					ev.Call("preventDefault")
+					render()
+				}
+			})
+			return nil
+		}))
+	}
 
 	// Optional wheel scrolling: a [Scroller] scene gets the browser's wheel routed
 	// to the widget under the pointer as toolkit scroll ROWS (deltaX/deltaY
