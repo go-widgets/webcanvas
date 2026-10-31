@@ -6,7 +6,7 @@ replace github.com/go-widgets/webcanvas => ../
 
 require (
 	github.com/chromedp/chromedp v0.21.0
-	github.com/go-widgets/webcanvas v0.5.0
+	github.com/go-widgets/webcanvas v0.7.0
 )
 
 require (
