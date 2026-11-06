@@ -78,6 +78,39 @@ Bounds and safety:
 `browsertest/` draws a closed bitmap, then a 2×2 green bitmap scaled into a
 4×4 corner, and reads the pixels back.
 
+**Windows over content the host draws as DOM.** A scene may draw some of its
+content as real DOM rather than into the canvas — a page of text the browser
+lays out and the reader can select, a video, an `<iframe>` — and still paint
+windows of its own over it. It cannot, by default:
+
+> **A DOM element is unconditionally above a canvas.** The canvas and the
+> element are siblings in the page, so a window painted *into* the canvas
+> cannot come forward over one, however the application stacks it internally.
+
+There is no z-index that fixes this and no drawing order that avoids it. The
+only way a canvas-painted window appears over DOM content is for the host to
+punch a hole in the DOM content where the window is. `ClipPath([]Overlay,
+dpr)` builds that hole as a CSS `clip-path`; the host applies it to the element
+holding its DOM content, and `clip-path: none` when the string is empty.
+
+- Coordinates are canvas pixels, the same space `Draw` paints and `Layer` is
+  placed in; `dpr` converts them to the CSS pixels a `path()` reads.
+- Each `Overlay` carries the **corner radius** of the window drawn there. A
+  square hole behind a rounded window cuts the content out at the corners while
+  the canvas leaves them transparent, and the void between the two reads as
+  black notches around the window.
+- The path is the outer ring plus **one closed subpath per hole**, filled
+  `evenodd`. A single polygon threading from the ring in to each hole and back
+  has that journey drawn, and leaves a wedge cut out of the content.
+- At most 64 holes per frame; empty rectangles punch nothing and do not use up
+  the budget; a radius past half the shorter side is clamped; a `dpr` that is
+  not a positive number is taken as 1 rather than producing `NaN` coordinates,
+  which a browser rejects — and a rejected clip path is no clip path.
+
+Measured in the [go-tex playground](https://github.com/go-tex/go-tex.github.io),
+which is where it comes from: dragging its find-and-replace panel over the
+rendered page sliced the panel off at the page's edge until the hole existed.
+
 ## Where this came from
 
 It was `internal/webcanvas` inside
