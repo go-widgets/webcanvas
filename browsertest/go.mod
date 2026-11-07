@@ -5,8 +5,8 @@ go 1.27.1
 replace github.com/go-widgets/webcanvas => ../
 
 require (
-	github.com/chromedp/chromedp v0.21.1
-	github.com/go-widgets/webcanvas v0.7.0
+	github.com/chromedp/chromedp v0.23.0
+	github.com/go-widgets/webcanvas v0.8.0
 )
 
 require (
