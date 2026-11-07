@@ -37,7 +37,26 @@ func keyCode(ev js.Value) string {
 // every demo — the widget gallery, the isometric editor — reuses it unchanged
 // by supplying an App. A missing canvas is reported and Run returns, leaving
 // the page intact (the host shell shows its own boot-error text).
-func Run(screenID string, app App) {
+func Run(screenID string, app App) { RunWith(screenID, app, nil) }
+
+// Presenter puts frames on the canvas in place of the default, which paints
+// App.Draw's RGBA buffer through a 2D context. Package webcanvas/gpu has one
+// that draws on the GPU.
+//
+// A canvas takes ONE kind of context for life, so the choice is made once,
+// before the first frame: Attach is handed the untouched canvas, already
+// w × h, and returns whether it takes it. A presenter that declines must not
+// have asked the canvas for a context; Run then paints through 2D as usual.
+// One that accepts draws every frame from then on, at the canvas' current
+// size. A [Layered] scene is not offered to a presenter: its images are drawn
+// through the 2D context.
+type Presenter interface {
+	Attach(canvas js.Value, app App, w, h int) bool
+	Frame(app App, w, h int)
+}
+
+// RunWith is Run with a Presenter; nil, or a presenter that declines, is Run.
+func RunWith(screenID string, app App, p Presenter) {
 	doc := js.Global().Get("document")
 	canvas := doc.Call("getElementById", screenID)
 	if canvas.IsUndefined() || canvas.IsNull() {
@@ -49,13 +68,34 @@ func Run(screenID string, app App) {
 	w, h := app.Size()
 	canvas.Set("width", w)
 	canvas.Set("height", h)
-	ctx := canvas.Call("getContext", "2d")
 
-	local := make([]byte, 4*w*h)
-	imageData := ctx.Call("createImageData", w, h)
-	dst := imageData.Get("data")
+	presented := false
+	if _, layered := app.(Layered); p != nil && !layered {
+		guard(func() { presented = p.Attach(canvas, app, w, h) })
+	}
+	var (
+		ctx, imageData, dst js.Value
+		local               []byte
+	)
+	// alloc sizes the 2D path's framebuffer trio; a presented canvas has none.
+	alloc := func() {
+		if presented {
+			return
+		}
+		if ctx.IsUndefined() {
+			ctx = canvas.Call("getContext", "2d")
+		}
+		local = make([]byte, 4*w*h)
+		imageData = ctx.Call("createImageData", w, h)
+		dst = imageData.Get("data")
+	}
+	alloc()
 
 	render := func() {
+		if presented {
+			p.Frame(app, w, h)
+			return
+		}
 		app.Draw(local)
 		js.CopyBytesToJS(dst, local)
 		ctx.Call("putImageData", imageData, 0, 0)
@@ -265,9 +305,7 @@ func Run(screenID string, app App) {
 			w, h = rz.Resize(devicePixels(cw, ratio), devicePixels(ch, ratio))
 			canvas.Set("width", w)
 			canvas.Set("height", h)
-			local = make([]byte, 4*w*h)
-			imageData = ctx.Call("createImageData", w, h)
-			dst = imageData.Get("data")
+			alloc()
 			render()
 		}
 		js.Global().Call("addEventListener", "resize", js.FuncOf(func(_ js.Value, _ []js.Value) any {

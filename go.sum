@@ -1,0 +1,12 @@
+github.com/go-gfx/gfx v0.41.0 h1:MVEnory0Zx8ypzuVDrTIWz4Cekv8hn5ilcYg3glJPrk=
+github.com/go-gfx/gfx v0.41.0/go.mod h1:4OenoKrgdht6UXYf5SV8w2tb41hfAdy4QoxJRPsRDz4=
+github.com/go-gfx/gpu2d v0.5.1 h1:qjMQNFXPG+0yvUDJGkKlth1o1dpZzLs3d+CAHZRTbi8=
+github.com/go-gfx/gpu2d v0.5.1/go.mod h1:o49M4VSvllY2WkvlDNE1bu9IfI8UWjIIcE3lwBqNAuA=
+github.com/go-gfx/webgpu v0.15.0 h1:YqEOflkk9ej8KFYJvO4gMTpw9c9FtqmKLLP5joRDG2Y=
+github.com/go-gfx/webgpu v0.15.0/go.mod h1:doIaanN3TQ5QUSTUXDvSOrUYIdyAAfNmqCSDio2JTuo=
+github.com/go-gfx/wgsl v0.4.0 h1:SJOaSkvTcPvK9wdp3vM8ruXFvtxeFLvYEBLV3ZPm4zA=
+github.com/go-gfx/wgsl v0.4.0/go.mod h1:Fzzw0jXvB+zxCqmTDwvcu3B7PkIVJBcygl2dyDyDAgQ=
+github.com/go-widgets/gpupainter v0.4.0 h1:0vCn1fdCmKzY9HvA7ZIvuShTaMez/4J1boFmoPIwfyc=
+github.com/go-widgets/gpupainter v0.4.0/go.mod h1:FsiQjTB+EbxOprUMPqExALrzSyrNta3wTKbpA8dbfUM=
+github.com/go-widgets/painter v0.17.0 h1:PB/Xr0flFR9qL2/RPhbJOeyU6PPzcGyf3Qx4RRngowg=
+github.com/go-widgets/painter v0.17.0/go.mod h1:8kERcZUoWNyLIas1NsMWiYynvvyx+hcB2cNIh0Bx0yc=

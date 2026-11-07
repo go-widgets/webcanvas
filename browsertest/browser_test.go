@@ -32,10 +32,13 @@ WebAssembly.instantiateStreaming(fetch("page.wasm"), go.importObject).then(r => 
 </script>`
 
 // serve builds ./page for js/wasm and serves it with Go's own wasm_exec.js.
-func serve(t *testing.T) string {
+func serve(t *testing.T) string { return servePage(t, "./page") }
+
+// servePage builds the page in dir for js/wasm and serves it.
+func servePage(t *testing.T, page string) string {
 	t.Helper()
 	dir := t.TempDir()
-	build := exec.Command("go", "build", "-o", filepath.Join(dir, "page.wasm"), "./page")
+	build := exec.Command("go", "build", "-o", filepath.Join(dir, "page.wasm"), page)
 	build.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("building the page: %v\n%s", err, out)
@@ -67,6 +70,44 @@ func browser(t *testing.T) context.Context {
 		t.Skipf("no Chrome to run the page in: %v", err)
 	}
 	return ctx
+}
+
+// ready waits for the page's first frame.
+func ready(t *testing.T, ctx context.Context) {
+	t.Helper()
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if ok, err := chromedp.Run(ctx, chromedp.Evaluate[bool](`window.webcanvasReady === true`)); err == nil && ok {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the page never drew its first frame")
+		}
+	}
+}
+
+// A presenter that takes the canvas draws every frame; the scene's Draw is
+// never called, and the 2D path never runs.
+func TestRunWithAPresenter(t *testing.T) {
+	url := servePage(t, "./presentpage")
+	ctx := browser(t)
+	if _, err := chromedp.Run(ctx, chromedp.Navigate(url)); err != nil {
+		t.Fatal(err)
+	}
+	ready(t, ctx)
+	px, err := chromedp.Run(ctx, chromedp.Evaluate[[]int](`(() => { const d = document.getElementById("screen").getContext("2d").getImageData(0,0,1,1).data; return [d[0], d[1], d[2]]; })()`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if px[0] != 0 || px[1] != 255 || px[2] != 0 {
+		t.Fatalf("the canvas is %v, not the presenter's green", px)
+	}
+	counts, err := chromedp.Run(ctx, chromedp.Evaluate[[]int](`[window.__draws, window.__frames]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts[0] != 0 || counts[1] < 1 {
+		t.Fatalf("Draw called %d times, presenter frames %d: want 0 and at least 1", counts[0], counts[1])
+	}
 }
 
 // pixel is the red and blue of the canvas' first pixel.
