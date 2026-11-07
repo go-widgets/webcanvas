@@ -111,6 +111,23 @@ Measured in the [go-tex playground](https://github.com/go-tex/go-tex.github.io),
 which is where it comes from: dragging its find-and-replace panel over the
 rendered page sliced the panel off at the page's edge until the hole existed.
 
+## On the GPU
+
+`RunWith(id, app, presenter)` hands the canvas to a `Presenter` instead of
+painting `Draw`'s buffer with `putImageData`. Package `webcanvas/gpu` is a
+presenter that draws on the GPU through WebGPU:
+
+```go
+webcanvas.RunWith("screen", app, gpu.New())
+```
+
+- **Which apps:** one that also implements `gpu.Painted`, `Paint(painter.Painter)`, which paints the whole frame as it would into a `PixelPainter`.
+- **How:** the app is recorded through [go-widgets/gpupainter](https://github.com/go-widgets/gpupainter) into a [go-gfx/gpu2d](https://github.com/go-gfx/gpu2d) list. gpu2d's WebGPU renderer draws it and copies the frame into the canvas texture on the GPU, so nothing passes through Go memory or `putImageData`.
+- **Same pixels:** `TestThePresenterDrawsWhatDrawPaints` holds the GPU frame to `Draw`'s CPU frame byte for byte, before and after a resize. gpu2d's own test holds the canvas texture to that frame.
+- **Choosing once:** a canvas takes one kind of context for life, so the choice is made once, before the first frame. The presenter asks the canvas for its WebGPU context only after it has a device, a renderer and a surface. Any earlier failure leaves the canvas untouched, and `Run` paints through 2D as before; the presenter's `Err` says why. That covers a browser without WebGPU and an app that is not `Painted`.
+- **Layered scenes:** their images are drawn through the 2D context, so they are never offered to a presenter.
+- **Resizing:** the renderer is rebuilt at the new size, and the old one's memory is released.
+
 ## Where this came from
 
 It was `internal/webcanvas` inside
