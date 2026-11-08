@@ -68,7 +68,14 @@ type Surface struct {
 	keyTarget js.Value
 	all       listeners // everything but the keyboard
 	keys      listeners // the keyboard group, rebound by bindKeys
+	refresh   func()
 }
+
+// Refresh draws a frame now and, for an [A11yAware] scene, updates the
+// accessibility mirror with it (subject to the 200 ms throttle). Input events
+// and the scene's own repaint requests already do this; Refresh is for a host
+// that changed the scene from outside.
+func (s *Surface) Refresh() { s.refresh() }
 
 // Canvas is the <canvas> this surface draws on.
 func (s *Surface) Canvas() js.Value { return s.canvas }
@@ -129,8 +136,15 @@ func Mount(canvas js.Value, app App) *Surface { return MountWith(canvas, app, ni
 // not what the presenter holds.
 func MountWith(canvas js.Value, app App, p Presenter) *Surface {
 	s := &Surface{canvas: canvas, keyTarget: canvas}
+	aware, hasMirror := app.(A11yAware)
 	if !canvas.Call("hasAttribute", "tabindex").Bool() {
-		canvas.Call("setAttribute", "tabindex", "0")
+		// With a mirror the mirror root is the tab stop and hears the keys; the
+		// canvas stays focusable by click only and hands its focus over.
+		ti := "0"
+		if hasMirror {
+			ti = "-1"
+		}
+		canvas.Call("setAttribute", "tabindex", ti)
 	}
 	// w, h, and the framebuffer trio are mutable: a [Resizer] scene reallocates
 	// them on every viewport change, and coords/render read the live values.
@@ -161,7 +175,10 @@ func MountWith(canvas js.Value, app App, p Presenter) *Surface {
 	alloc()
 
 	var closed atomic.Bool
-	render := func() {
+	var mir *mirror // nil unless the scene is an [A11yAware]
+	var render func()
+	// paint draws one frame; render is paint plus the mirror's update.
+	paint := func() {
 		if closed.Load() {
 			return
 		}
@@ -187,6 +204,23 @@ func MountWith(canvas js.Value, app App, p Presenter) *Surface {
 			})
 			ctx.Set("globalAlpha", 1)
 		}
+	}
+	render = func() {
+		paint()
+		if mir != nil && !closed.Load() {
+			mir.update(false)
+		}
+	}
+	s.refresh = func() { guard(render) }
+	if hasMirror {
+		mir = newMirror(s, canvas, aware, func(x, y int) {
+			// What a screen reader's activation sends: a press and release.
+			c := app.Click(x, y)
+			r := app.Release(x, y)
+			if c || r {
+				render()
+			}
+		})
 	}
 	// A [RepaintAware] scene gets a way to ask for a frame from any goroutine.
 	// One frame is in flight at most: the flag is cleared when it is drawn.
@@ -304,7 +338,11 @@ func MountWith(canvas js.Value, app App, p Presenter) *Surface {
 			})
 		}
 	}
-	bindKeys(canvas)
+	if mir != nil {
+		bindKeys(mir.root) // the focused mirror element is where keys land
+	} else {
+		bindKeys(canvas)
+	}
 
 	// Optional wheel: a [Scroller] always consumes it; a [ScrollConsumer] says
 	// per event (see its doc for the passive-listener reasoning). The listener is
@@ -356,6 +394,9 @@ func MountWith(canvas js.Value, app App, p Presenter) *Surface {
 			canvas.Set("width", w)
 			canvas.Set("height", h)
 			alloc()
+			if mir != nil {
+				mir.force = true // a new size is never throttled
+			}
 			render()
 		}
 		on(&s.all, js.Global(), "resize", nil, func(js.Value) { resize() })
