@@ -145,6 +145,57 @@ Measured in the [go-tex playground](https://github.com/go-tex/go-tex.github.io),
 which is where it comes from: dragging its find-and-replace panel over the
 rendered page sliced the panel off at the page's edge until the hole existed.
 
+## Accessibility
+
+A `<canvas>` is one opaque image to a screen reader. A scene that implements
+`A11yAware`, `A11yNodes() []A11yNode`, gets an **accessibility mirror**: a DOM
+subtree beside the canvas that says in ARIA what the scene paints. `Mount` and
+`Run` build it; nothing else changes for a scene that does not implement it.
+
+```go
+func (s *scene) A11yNodes() []webcanvas.A11yNode {
+	return []webcanvas.A11yNode{
+		{Key: "Button#0", Role: "button", Name: "Save", X: 10, Y: 20, W: 80, H: 30},
+		{Key: "@cell3", Role: "textbox", Name: "Go cell 3", Value: src, Multiline: true, X: 150, Y: 20, W: 200, H: 80},
+	}
+}
+```
+
+- **Nodes** are in reading order, in surface pixels. `Key` is stable across
+  frames (toolkit's `A11yNode.Key`); the mirror diffs by it, so an unchanged
+  key keeps the same DOM element and a screen reader's virtual cursor is not
+  reset on every frame.
+- **Roles:** button (a native `<button>`), checkbox, switch and radio
+  (`aria-checked`), slider, progressbar, meter and spinbutton
+  (`aria-valuemin/max/now/valuetext`), text, textbox (`role=textbox`,
+  `aria-multiline`, `aria-readonly`), status, alert and log, and any other
+  WAI-ARIA role name. `Disabled` is `aria-disabled`.
+- **Hidden visually, not from assistive technology:** the root is clipped
+  (`clip-path: inset(50%)`, `overflow: hidden`), never `display: none`,
+  `visibility: hidden` or `aria-hidden`, and has `pointer-events: none`, so
+  the mouse still reaches the canvas.
+- **Focus:** the mirror element of the focused node holds real DOM focus, and
+  the mirror root is the surface's key target.
+- **Activation:** a `click` on a mirror element (a screen reader's "activate")
+  is replayed as a press and release at the node's centre; so is a focus that
+  assistive technology moves onto a focusable node.
+- **Announcements:** `status` and `log` text that appears or changes is written
+  to one persistent polite live region, `alert` text to an assertive one. Both
+  exist, empty, before the first announcement.
+- **Cost:** a changed tree is published at most every 200 ms, and a change
+  refused as too soon is deferred, never dropped. An unchanged tree costs a
+  64-bit signature. A resize and a change of the focused node are never held
+  back. `Surface.Refresh()` draws a frame and updates the mirror for a host that
+  changed the scene from outside.
+- **Untrusted text:** names, values and roles may come from the user (a notebook
+  from anyone). They reach the DOM only through `textContent` and
+  `setAttribute`; there is no `innerHTML`. A role that is not lowercase letters
+  and hyphens is dropped.
+
+Measured in headless Chrome, 2,000 nodes (`browsertest`, `go test -v -run
+TestMirrorCost`): building the tree 70 ms, one changed node 6.5 ms, an unchanged
+frame 0.5 ms, every node moved 36 ms, every node reordered 119 ms.
+
 ## On the GPU
 
 `RunWith(id, app, presenter)` hands the canvas to a `Presenter` instead of
@@ -182,8 +233,9 @@ the fleet's targets, and a `js/wasm` build.
 **What that coverage does and does not say.** The interface, the scene contract
 and the event dispatch are covered. `run_js.go` — the DOM loop itself — is
 behind a `js && wasm` build tag and so is not part of the measured build at
-all: it compiles for the browser and is exercised by the applications that use
-it, not by a test here. A gate that reports 100% while a file is invisible to
+all: it compiles for the browser and is exercised by `browsertest/`, a real
+headless Chrome driven by chromedp (also `mirror_js.go`, the mirror's DOM glue;
+the mirror's decisions are in `mirror.go` and are covered). A gate that reports 100% while a file is invisible to
 it is worth saying out loud.
 
 ## License

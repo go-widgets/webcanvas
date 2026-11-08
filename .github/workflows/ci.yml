@@ -77,3 +77,11 @@ jobs:
           grep -q -- '--- PASS: TestKeysReachOnlyTheFocusedSurface' browser.log
           grep -q -- '--- PASS: TestWheelScrollsThePageOnlyWhereTheSceneDoesNotConsume' browser.log
           grep -q -- '--- PASS: TestCloseRemovesEveryListener' browser.log
+          grep -q -- '--- PASS: TestMirrorTreeHasRoleNameValueAndBounds' browser.log
+          grep -q -- '--- PASS: TestMirrorIsClippedNotHidden' browser.log
+          grep -q -- '--- PASS: TestMirrorKeepsBackendNodeIdsAcrossFrames' browser.log
+          grep -q -- '--- PASS: TestMirrorActivationFocusAndKeys' browser.log
+          grep -q -- '--- PASS: TestMirrorAnnouncesFromPersistentLiveRegions' browser.log
+          grep -q -- '--- PASS: TestMirrorTreatsMarkupAsData' browser.log
+          grep -q -- '--- PASS: TestMirrorThrottle' browser.log
+          grep -q -- '--- PASS: TestMirrorCloseRemovesTheRoot' browser.log
