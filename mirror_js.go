@@ -31,6 +31,8 @@ type mirror struct {
 	focus string              // key of the focused node as published ("" none)
 	th    throttle
 
+	// keyAt is when a key press last activated a mirror element (performance.now).
+	keyAt float64
 	// force makes the next update publish (a resize).
 	force bool
 	// syncing is set while the glue itself moves DOM focus, so its own focus
@@ -78,9 +80,23 @@ func newMirror(s *Surface, canvas js.Value, app A11yAware, click func(x, y int))
 	// reader's default action sends) is replayed as a press and release at the
 	// node's centre, the way the native bridges do it: no second code path.
 	on(&s.all, m.root, "click", nil, func(ev js.Value) {
+		if isKeyboardEcho(ev.Get("detail").Int(), m.keyAt, js.Global().Get("performance").Call("now").Float()) {
+			ev.Call("preventDefault")
+			return // the browser's click for a key press already activated
+		}
 		if n, ok := m.nodeOf(ev.Get("target")); ok {
 			x, y := centre(n)
 			m.click(x, y)
+		}
+	})
+	// Some browsers click a button on the keyup of Space: the keydown handler
+	// has already activated, so cancel that keyup (its default action is none
+	// in UI Events, and it is cancelable).
+	on(&s.all, m.root, "keyup", nil, func(ev js.Value) {
+		if ev.Get("key").String() == " " {
+			if _, ok := m.nodeOf(ev.Get("target")); ok {
+				ev.Call("preventDefault")
+			}
 		}
 	})
 	// A focus that assistive technology sends to a focusable node is a click,
@@ -145,7 +161,8 @@ func focusKey(ns []A11yNode) string {
 // throttle allows, brings the DOM to it. A change refused as too soon is
 // deferred, so the DOM always catches up to the last tree.
 func (m *mirror) update(force bool) {
-	nodes := m.app.A11yNodes()
+	// Never build more than maxMirrorNodes elements, whatever the scene returns.
+	nodes, _ := capNodes(m.app.A11yNodes(), maxMirrorNodes)
 	scale := m.scale()
 	sig := treeSig(nodes, scale)
 	// Focus is the one thing a user waits on: a change of the focused node is

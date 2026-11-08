@@ -320,6 +320,22 @@ func MountWith(canvas js.Value, app App, p Presenter) *Surface {
 			} else {
 				changed = app.KeyDown(key)
 			}
+			// Enter or Space on a mirror element: the browser would click it
+			// (UI Events, keydown default action). Cancel that, and replay a
+			// click ourselves only when the scene did not take the key, so a
+			// key press activates exactly once. See [isActivationKey].
+			if mir != nil && isActivationKey(key) && !ev.Get("ctrlKey").Bool() && !ev.Get("metaKey").Bool() && !ev.Get("altKey").Bool() {
+				if n, ok := mir.nodeOf(ev.Get("target")); ok {
+					ev.Call("preventDefault")
+					mir.keyAt = js.Global().Get("performance").Call("now").Float()
+					if !changed {
+						x, y := centre(n)
+						app.Click(x, y)
+						app.Release(x, y)
+						changed = true
+					}
+				}
+			}
 			if changed {
 				ev.Call("preventDefault")
 				render()
