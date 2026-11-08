@@ -19,24 +19,12 @@ func keyCode(ev js.Value) string {
 	return ""
 }
 
-// Run boots app onto the <canvas> whose id is screenID and never returns: it
-// sizes the canvas from [App.Size], blits [App.Draw] into it, and wires the DOM
-// event listeners that drive [App.Click]/Move/Release/Context/Char/KeyDown.
-// When app also implements [Ticker], a 60-Hz timer repaints on every tick; when
-// it implements [Animator], a requestAnimationFrame loop drives it; when it
-// implements [Resizer], the canvas tracks the viewport and the scene relayouts on
-// every window resize.
+// Run boots app onto the <canvas> whose id is screenID and never returns: it is
+// [Mount] on that canvas, focus on it, and a park. Use Mount for a page that
+// holds several canvases or must keep running code after the scene is up.
 //
-// Every DOM callback runs inside [guard], a recover net: a panic escaping one
-// handler (or the paint it triggers) is logged through [PanicReporter] and
-// swallowed, so a single bad frame never blanks the whole instance and the next
-// event still dispatches. It is a last-resort net on top of the toolkit's own
-// per-widget hardening, not a substitute for it.
-//
-// This is the module's ONE canvas host. It carries no widget knowledge, so
-// every demo — the widget gallery, the isometric editor — reuses it unchanged
-// by supplying an App. A missing canvas is reported and Run returns, leaving
-// the page intact (the host shell shows its own boot-error text).
+// A missing canvas is reported and Run returns, leaving the page intact (the
+// host shell shows its own boot-error text).
 func Run(screenID string, app App) { RunWith(screenID, app, nil) }
 
 // Presenter puts frames on the canvas in place of the default, which paints
@@ -57,11 +45,92 @@ type Presenter interface {
 
 // RunWith is Run with a Presenter; nil, or a presenter that declines, is Run.
 func RunWith(screenID string, app App, p Presenter) {
-	doc := js.Global().Get("document")
-	canvas := doc.Call("getElementById", screenID)
+	canvas := js.Global().Get("document").Call("getElementById", screenID)
 	if canvas.IsUndefined() || canvas.IsNull() {
 		println("webcanvas: no #" + screenID + " canvas in the host page")
 		return
+	}
+	s := MountWith(canvas, app, p)
+	// One canvas on the page: it owns the keyboard from the start, as it did
+	// when the listeners were on the window.
+	s.Focus()
+	select {} // park forever so the callbacks live
+}
+
+// Surface is one mounted canvas: its scene, its framebuffer and every listener,
+// timer and animation frame it installed. Surfaces are independent; a page may
+// hold as many as it likes, and Close removes one without touching the others.
+type Surface struct {
+	canvas js.Value
+	// keyTarget is the element that receives this surface's keyboard events.
+	// Today it is the canvas itself; the accessibility mirror (#21, W2) rebinds
+	// it to its mirror root through bindKeys, with no change to the API.
+	keyTarget js.Value
+	all       listeners // everything but the keyboard
+	keys      listeners // the keyboard group, rebound by bindKeys
+}
+
+// Canvas is the <canvas> this surface draws on.
+func (s *Surface) Canvas() js.Value { return s.canvas }
+
+// Focus gives the keyboard to this surface: keys typed from now on reach its
+// scene, and no other surface's. The browser does the same when the canvas is
+// clicked or tabbed to.
+func (s *Surface) Focus() {
+	s.keyTarget.Call("focus", map[string]any{"preventScroll": true})
+}
+
+// Close removes every listener, timer and animation frame the surface
+// installed. The canvas keeps its last frame. Close is idempotent.
+func (s *Surface) Close() {
+	s.keys.close()
+	s.all.close()
+}
+
+// on attaches fn to target for the event name through the ledger l; Close (or a
+// rebind) removes the listener and releases its js.Func. fn runs under [guard].
+func on(l *listeners, target js.Value, name string, opts any, fn func(ev js.Value)) {
+	var cb js.Func
+	cb = js.FuncOf(func(_ js.Value, args []js.Value) any {
+		guard(func() {
+			ev := js.Undefined()
+			if len(args) > 0 {
+				ev = args[0]
+			}
+			fn(ev)
+		})
+		return nil
+	})
+	l.add(func() {
+		if opts == nil {
+			target.Call("addEventListener", name, cb)
+		} else {
+			target.Call("addEventListener", name, cb, opts)
+		}
+	}, func() {
+		target.Call("removeEventListener", name, cb)
+		cb.Release()
+	})
+}
+
+// Mount puts app on canvas and returns at once. Every listener is the
+// surface's own: pointer and wheel events on the canvas, keys on the element
+// that has focus (the canvas, made focusable with tabindex when the page gave
+// it none), resize on the window. Two surfaces on one page therefore never see
+// each other's input: a key reaches only the surface that has focus, and the
+// wheel the one under the pointer.
+//
+// Mount does not take focus; call [Surface.Focus]. See [Run] for the single
+// canvas that does.
+func Mount(canvas js.Value, app App) *Surface { return MountWith(canvas, app, nil) }
+
+// MountWith is Mount with a [Presenter]; nil, or one that declines, is Mount.
+// A Presenter has no teardown of its own, so Close stops what Mount installed,
+// not what the presenter holds.
+func MountWith(canvas js.Value, app App, p Presenter) *Surface {
+	s := &Surface{canvas: canvas, keyTarget: canvas}
+	if !canvas.Call("hasAttribute", "tabindex").Bool() {
+		canvas.Call("setAttribute", "tabindex", "0")
 	}
 	// w, h, and the framebuffer trio are mutable: a [Resizer] scene reallocates
 	// them on every viewport change, and coords/render read the live values.
@@ -91,7 +160,11 @@ func RunWith(screenID string, app App, p Presenter) {
 	}
 	alloc()
 
+	var closed atomic.Bool
 	render := func() {
+		if closed.Load() {
+			return
+		}
 		if presented {
 			p.Frame(app, w, h)
 			return
@@ -118,16 +191,25 @@ func RunWith(screenID string, app App, p Presenter) {
 	// A [RepaintAware] scene gets a way to ask for a frame from any goroutine.
 	// One frame is in flight at most: the flag is cleared when it is drawn.
 	if ra, ok := app.(RepaintAware); ok {
-		var pending atomic.Bool
+		var (
+			pending atomic.Bool
+			rafID   atomic.Int64
+		)
 		frame := js.FuncOf(func(_ js.Value, _ []js.Value) any {
 			pending.Store(false)
 			guard(render)
 			return nil
 		})
 		ra.RepaintWith(func() {
-			if pending.CompareAndSwap(false, true) {
-				js.Global().Call("requestAnimationFrame", frame)
+			if !closed.Load() && pending.CompareAndSwap(false, true) {
+				rafID.Store(int64(js.Global().Call("requestAnimationFrame", frame).Int()))
 			}
+		})
+		s.all.add(func() {}, func() {
+			if pending.Load() {
+				js.Global().Call("cancelAnimationFrame", int(rafID.Load()))
+			}
+			frame.Release()
 		})
 	}
 	render()
@@ -152,70 +234,54 @@ func RunWith(screenID string, app App, p Presenter) {
 		return Modifiers{Ctrl: ev.Get("ctrlKey").Bool(), Shift: ev.Get("shiftKey").Bool(),
 			Alt: ev.Get("altKey").Bool(), Meta: ev.Get("metaKey").Bool()}
 	}
-	// listen wires a pointer event whose handler takes canvas-local coords and
-	// reports whether to repaint. The whole body (coords → handle → render) runs
-	// under the guard net, so a panic anywhere in it is logged, not fatal.
-	listen := func(name string, handle func(x, y int) bool) {
-		cb := js.FuncOf(func(_ js.Value, args []js.Value) any {
-			guard(func() {
-				if len(args) == 0 {
-					return
-				}
-				tellModifiers(app, mods(args[0]))
-				x, y := coords(args[0])
-				if handle(x, y) {
-					render()
-				}
-			})
-			return nil
+	// pointer wires a pointer event whose handler takes canvas-local coords and
+	// reports whether to repaint.
+	pointer := func(name string, handle func(x, y int) bool) {
+		on(&s.all, canvas, name, nil, func(ev js.Value) {
+			tellModifiers(app, mods(ev))
+			x, y := coords(ev)
+			if handle(x, y) {
+				render()
+			}
 		})
-		canvas.Call("addEventListener", name, cb)
 	}
 	// Left-button press only: a right press is the context menu's business.
-	canvas.Call("addEventListener", "mousedown", js.FuncOf(func(_ js.Value, args []js.Value) any {
-		guard(func() {
-			if len(args) == 0 || args[0].Get("button").Int() != 0 {
-				return
-			}
-			tellModifiers(app, mods(args[0]))
-			x, y := coords(args[0])
-			if app.Click(x, y) {
-				render()
-			}
-		})
-		return nil
-	}))
-	listen("mousemove", app.Move)
-	listen("mouseup", app.Release)
+	on(&s.all, canvas, "mousedown", nil, func(ev js.Value) {
+		if ev.Get("button").Int() != 0 {
+			return
+		}
+		tellModifiers(app, mods(ev))
+		x, y := coords(ev)
+		if app.Click(x, y) {
+			render()
+		}
+	})
+	pointer("mousemove", app.Move)
+	pointer("mouseup", app.Release)
 	// Right-click opens the context menu; suppress the browser's own menu.
-	canvas.Call("addEventListener", "contextmenu", js.FuncOf(func(_ js.Value, args []js.Value) any {
-		guard(func() {
-			if len(args) == 0 {
-				return
-			}
-			args[0].Call("preventDefault")
-			tellModifiers(app, mods(args[0]))
-			x, y := coords(args[0])
-			if app.Context(x, y) {
-				render()
-			}
-		})
-		return nil
-	}))
-	// Keyboard on the window (a <canvas> is not focusable). A single printable
-	// rune with no Ctrl/Meta/Alt is text (Char); every named or modified key is
-	// a KeyDown.
-	js.Global().Call("addEventListener", "keydown", js.FuncOf(func(_ js.Value, args []js.Value) any {
-		guard(func() {
-			if len(args) == 0 {
-				return
-			}
-			ev := args[0]
-			key := ev.Get("key").String()
+	on(&s.all, canvas, "contextmenu", nil, func(ev js.Value) {
+		ev.Call("preventDefault")
+		tellModifiers(app, mods(ev))
+		x, y := coords(ev)
+		if app.Context(x, y) {
+			render()
+		}
+	})
+
+	// Keyboard, on the key target: only the focused surface hears a key. A
+	// single printable rune with no Ctrl/Meta/Alt is text (Char); every named
+	// or modified key is a KeyDown. bindKeys moves the whole group to another
+	// element (the accessibility mirror root, later) and back.
+	ku, _ := app.(KeyUpper)
+	bindKeys := func(target js.Value) {
+		s.keys.clear()
+		s.keyTarget = target
+		on(&s.keys, target, "keydown", nil, func(ev js.Value) {
 			tellModifiers(app, mods(ev))
 			tellKeyCode(app, keyCode(ev))
+			key := ev.Get("key").String()
 			var changed bool
-			if len([]rune(key)) == 1 && !ev.Get("ctrlKey").Bool() && !ev.Get("metaKey").Bool() && !ev.Get("altKey").Bool() {
+			if isTextKey(key, ev.Get("ctrlKey").Bool(), ev.Get("metaKey").Bool(), ev.Get("altKey").Bool()) {
 				changed = app.Char(key)
 			} else {
 				changed = app.KeyDown(key)
@@ -225,17 +291,10 @@ func RunWith(screenID string, app App, p Presenter) {
 				render()
 			}
 		})
-		return nil
-	}))
-	// Optional key releases: a [KeyUpper] scene is told when a key goes up,
-	// with its modifiers and code first, as for a key going down.
-	if ku, ok := app.(KeyUpper); ok {
-		js.Global().Call("addEventListener", "keyup", js.FuncOf(func(_ js.Value, args []js.Value) any {
-			guard(func() {
-				if len(args) == 0 {
-					return
-				}
-				ev := args[0]
+		// Optional key releases: a [KeyUpper] scene is told when a key goes up,
+		// with its modifiers and code first, as for a key going down.
+		if ku != nil {
+			on(&s.keys, target, "keyup", nil, func(ev js.Value) {
 				tellModifiers(app, mods(ev))
 				tellKeyCode(app, keyCode(ev))
 				if ku.KeyUp(ev.Get("key").String()) {
@@ -243,39 +302,30 @@ func RunWith(screenID string, app App, p Presenter) {
 					render()
 				}
 			})
-			return nil
-		}))
+		}
 	}
+	bindKeys(canvas)
 
-	// Optional wheel scrolling: a [Scroller] scene gets the browser's wheel routed
-	// to the widget under the pointer as toolkit scroll ROWS (deltaX/deltaY
-	// normalised for the event's deltaMode). preventDefault stops the page itself
-	// from scrolling under the canvas, so the wheel reaches the scene's scrollable
-	// region instead of the document. A scene that does not implement Scroller
-	// installs no listener, so the page's default wheel handling — and every
-	// existing demo — is untouched.
-	if sc, ok := app.(Scroller); ok {
-		wheel := js.FuncOf(func(_ js.Value, args []js.Value) any {
-			guard(func() {
-				if len(args) == 0 {
-					return
-				}
-				ev := args[0]
+	// Optional wheel: a [Scroller] always consumes it; a [ScrollConsumer] says
+	// per event (see its doc for the passive-listener reasoning). The listener is
+	// installed only for such a scene, so the page's default wheel handling is
+	// untouched otherwise. {passive:false}: without it preventDefault is a no-op
+	// wherever the browser defaults wheel listeners to passive.
+	if hasWheel(app) {
+		on(&s.all, canvas, "wheel", map[string]any{"passive": false}, func(ev js.Value) {
+			tellModifiers(app, mods(ev))
+			x, y := coords(ev)
+			mode := ev.Get("deltaMode").Int()
+			dx := scrollRows(ev.Get("deltaX").Float(), mode)
+			dy := scrollRows(ev.Get("deltaY").Float(), mode)
+			r := routeWheel(app, x, y, dx, dy)
+			if r.PreventDefault {
 				ev.Call("preventDefault")
-				tellModifiers(app, mods(ev))
-				x, y := coords(ev)
-				mode := ev.Get("deltaMode").Int()
-				dx := scrollRows(ev.Get("deltaX").Float(), mode)
-				dy := scrollRows(ev.Get("deltaY").Float(), mode)
-				if sc.Scroll(x, y, dx, dy) {
-					render()
-				}
-			})
-			return nil
+			}
+			if r.Repaint {
+				render()
+			}
 		})
-		// passive:false is required for preventDefault to take effect on a wheel
-		// listener (browsers treat wheel as passive by default).
-		canvas.Call("addEventListener", "wheel", wheel, map[string]any{"passive": false})
 	}
 
 	// Optional viewport tracking: a [Resizer] scene fills the browser window and
@@ -308,10 +358,7 @@ func RunWith(screenID string, app App, p Presenter) {
 			alloc()
 			render()
 		}
-		js.Global().Call("addEventListener", "resize", js.FuncOf(func(_ js.Value, _ []js.Value) any {
-			guard(resize)
-			return nil
-		}))
+		on(&s.all, js.Global(), "resize", nil, func(js.Value) { resize() })
 		// Fit the canvas to the viewport once, now, so the app opens full-page
 		// instead of at its intrinsic Size().
 		guard(resize)
@@ -320,41 +367,67 @@ func RunWith(screenID string, app App, p Presenter) {
 			// display of another density; a media query on the current ratio
 			// fires once when it stops matching, then the next one is installed
 			// (MDN, Window.devicePixelRatio).
-			var watch func()
+			var (
+				stopWatch func()
+				watch     func()
+			)
 			watch = func() {
+				if closed.Load() {
+					return
+				}
 				mq := js.Global().Call("matchMedia", resolutionQuery(ratio))
 				var cb js.Func
 				cb = js.FuncOf(func(_ js.Value, _ []js.Value) any {
 					mq.Call("removeEventListener", "change", cb)
+					cb.Release()
 					guard(resize)
 					watch()
 					return nil
 				})
 				mq.Call("addEventListener", "change", cb)
+				stopWatch = func() {
+					mq.Call("removeEventListener", "change", cb)
+					cb.Release()
+				}
 			}
-			watch()
+			s.all.add(watch, func() {
+				if stopWatch != nil {
+					stopWatch()
+				}
+			})
 		}
 	}
 
 	// Optional fixed-cadence clock: only scenes with time-varying state ask for it.
 	if t, ok := app.(Ticker); ok {
-		tick := js.FuncOf(func(_ js.Value, _ []js.Value) any {
+		var id js.Value
+		var tick js.Func
+		tick = js.FuncOf(func(_ js.Value, _ []js.Value) any {
 			guard(func() {
 				t.Tick()
 				render()
 			})
 			return nil
 		})
-		js.Global().Call("setInterval", tick, 16)
+		s.all.add(func() { id = js.Global().Call("setInterval", tick, 16) }, func() {
+			js.Global().Call("clearInterval", id)
+			tick.Release()
+		})
 	}
 
 	// Optional real-clock animation via requestAnimationFrame: hand the scene the
 	// true elapsed dt (seconds) between frames and repaint only when it reports a
 	// visible change, so an idle scene costs nothing beyond the rAF callback.
 	if a, ok := app.(Animator); ok {
-		var prevMS float64
-		var raf js.Func
+		var (
+			prevMS float64
+			id     js.Value
+			raf    js.Func
+		)
 		raf = js.FuncOf(func(_ js.Value, args []js.Value) any {
+			if closed.Load() {
+				return nil
+			}
 			guard(func() {
 				nowMS := args[0].Float()
 				if prevMS != 0 && a.AnimationStep((nowMS-prevMS)/1000) {
@@ -362,12 +435,16 @@ func RunWith(screenID string, app App, p Presenter) {
 				}
 				prevMS = nowMS
 			})
-			js.Global().Call("requestAnimationFrame", raf)
+			id = js.Global().Call("requestAnimationFrame", raf)
 			return nil
 		})
-		js.Global().Call("requestAnimationFrame", raf)
+		s.all.add(func() { id = js.Global().Call("requestAnimationFrame", raf) }, func() {
+			js.Global().Call("cancelAnimationFrame", id)
+			raf.Release()
+		})
 	}
 
-	// Park forever so the callbacks live.
-	select {}
+	// Closing marks the surface first, so a frame already queued draws nothing.
+	s.all.add(func() {}, func() { closed.Store(true) })
+	return s
 }

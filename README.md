@@ -23,6 +23,40 @@ import "github.com/go-widgets/webcanvas"
 func main() { webcanvas.Run("screen", myScene()) }
 ```
 
+**Several canvases on one page.** `Run` is the single-canvas entry point and
+never returns. `Mount(canvas js.Value, app App) *Surface` puts a scene on any
+`<canvas>` and returns at once; `Run` is `Mount`, `Focus`, park. Every
+listener belongs to its surface, so two surfaces never see each other's input:
+
+- **Keys** are heard by the surface that has focus, and only by it. The canvas
+  is made focusable (`tabindex="0"` unless the page set one), so a click or Tab
+  focuses it, and `Surface.Focus()` does it from code. Before, the keyboard
+  listeners were on `window`, and every canvas on the page received every key.
+  `Run` focuses its canvas, so a one-canvas page still types from the start;
+  click elsewhere on the page and the keys stop, as they do for any focusable
+  element.
+- **The wheel** goes to the surface under the pointer. A `Scroller` always
+  takes it (`preventDefault`), as before. A scene that implements
+  `ScrollConsumer`, `Scroll(x, y, dx, dy int) (repaint, consumed bool)`, takes
+  it only when it used it: with `consumed == false` the page scrolls under the
+  canvas, so an editor among prose does not trap the wheel. The listener is
+  registered `{passive: false}`: per the WHATWG DOM Standard, `preventDefault`
+  does nothing while a listener's passive flag is set, and wheel listeners
+  default to passive only on `window`, `document`, its root element and `body`,
+  not on a canvas.
+- **`Surface.Close()`** removes every listener, timer and animation frame the
+  surface installed, and is idempotent; the other surfaces carry on. A
+  `Presenter` has no teardown of its own.
+
+`Surface.Canvas()` is the canvas. The key target is the canvas for now; it is
+kept in one place so that an accessibility mirror can take it over later
+without changing this API
+([#21](https://github.com/go-widgets/webcanvas/issues/21)).
+`browsertest/` mounts two surfaces among prose in headless Chrome: a key typed
+after a click reaches only that surface, a real wheel over a scene that does
+not consume it scrolls the page, one over a scene that does leaves it, and
+after `Close` every `addEventListener` is matched by a `removeEventListener`.
+
 `App` is `Size`, `Draw(buf []byte)`, and one method per kind of event, each
 reporting whether the scene changed so a repaint can be skipped when nothing
 did. A scene may also implement `Ticker`, `Animator`, `Resizer` or `Scroller`

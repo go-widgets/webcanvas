@@ -74,3 +74,6 @@ jobs:
           set -o pipefail
           CHROME="$(command -v google-chrome)" go test -count=1 -v ./... | tee browser.log
           grep -q -- '--- PASS: TestRepaintWithFromAGoroutine' browser.log
+          grep -q -- '--- PASS: TestKeysReachOnlyTheFocusedSurface' browser.log
+          grep -q -- '--- PASS: TestWheelScrollsThePageOnlyWhereTheSceneDoesNotConsume' browser.log
+          grep -q -- '--- PASS: TestCloseRemovesEveryListener' browser.log

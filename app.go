@@ -172,7 +172,9 @@ func resolutionQuery(ratio float64) string {
 // toolkit scroll ROWS and routes them — with the canvas-local pointer position, so
 // the scene can hit-test which region the wheel is over — through Scroll. A scene
 // that omits it installs no wheel listener, so the page keeps its default wheel
-// behaviour and every existing demo (the widget gallery) is unchanged.
+// behaviour and every existing demo (the widget gallery) is unchanged. A Scroller
+// always takes the wheel (preventDefault); a scene that must let the page scroll
+// when it does not use the wheel implements [ScrollConsumer] instead.
 //
 // dx / dy are the horizontal / vertical scroll amounts in toolkit ROWS (already
 // normalised from the event's deltaMode by [scrollRows]): positive dy scrolls
