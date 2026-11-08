@@ -187,6 +187,17 @@ func (s *scene) A11yNodes() []webcanvas.A11yNode {
   64-bit signature. A resize and a change of the focused node are never held
   back. `Surface.Refresh()` draws a frame and updates the mirror for a host that
   changed the scene from outside.
+- **Key activation:** Enter or Space on a focused mirror element activates
+  exactly once. The mirror cancels the keydown (UI Events: a canceled keydown
+  dispatches no click), hands the key to the scene, and replays one click only
+  if the scene did not consume it. A native click that still follows a handled
+  key (detail 0, within 500 ms) is dropped.
+- **Node cap:** a mirror never holds more than **5,000** nodes, whatever the
+  scene returns. Above that, the tree is cut to the 5,000 that matter: a status
+  node first ("Accessibility view truncated: showing 4999 of N items", announced
+  like any status), the focused node and its subtree (at most half the budget),
+  then the first nodes in reading order. Larger documents need the paged mirror
+  planned in #21 (W4).
 - **Untrusted text:** names, values and roles may come from the user (a notebook
   from anyone). They reach the DOM only through `textContent` and
   `setAttribute`; there is no `innerHTML`. A role that is not lowercase letters

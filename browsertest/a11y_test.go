@@ -507,3 +507,81 @@ func TestMirrorCost(t *testing.T) {
 		t.Errorf("building 2,000 nodes costs %.0f ms", med["create"])
 	}
 }
+
+// One key press activates exactly once. The scene here does not take Enter or
+// Space, so the browser would click the focused native button AND the mirror
+// would replay: the mirror cancels the keydown (UI Events: a canceled keydown
+// dispatches no click) and replays once. When the scene does take the key, the
+// mirror replays nothing.
+func TestMirrorEnterAndSpaceActivateExactlyOnce(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		key  string
+		want string // what the scene hears
+	}{{"Enter", kb.Enter, "down Enter"}, {"Space", " ", "char  "}} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := a11yPage(t)
+			s := slices.Clone(sample)
+			s[0].Focused = true
+			setNodes(t, ctx, sample)
+			ev[any](t, ctx, `focusSurface()`)
+			setNodesNow(t, ctx, s)
+			if got := ev[string](t, ctx, `document.activeElement.textContent`); got != "Save" {
+				t.Fatalf("focus is on %q, not the Save button", got)
+			}
+
+			ev[any](t, ctx, `window.__clicks = []; window.__keys = []; window.__consume = false`)
+			if err := chromedp.Do(ctx, chromedp.KeyEvent(tc.key)); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(200 * time.Millisecond) // a late click (Space clicks on keyup) would be here
+			if got := ev[[]string](t, ctx, `window.__clicks`); !slices.Equal(got, []string{"click 50,35", "release 50,35"}) {
+				t.Errorf("unconsumed %s activated as %q, want exactly one click and release", tc.name, got)
+			}
+			if got := ev[[]string](t, ctx, `window.__keys`); !slices.Equal(got, []string{tc.want}) {
+				t.Errorf("the scene heard %q, want %q", got, tc.want)
+			}
+
+			ev[any](t, ctx, `window.__clicks = []; window.__keys = []; window.__consume = true`)
+			if err := chromedp.Do(ctx, chromedp.KeyEvent(tc.key)); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(200 * time.Millisecond)
+			if got := ev[[]string](t, ctx, `window.__clicks`); len(got) != 0 {
+				t.Errorf("a %s the scene consumed still clicked: %q", tc.name, got)
+			}
+			if got := ev[[]string](t, ctx, `window.__keys`); !slices.Equal(got, []string{tc.want}) {
+				t.Errorf("consumed: the scene heard %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// A tree above the cap builds a bounded DOM: the cap refuses the rest, keeps
+// the focused node, and says the view is truncated.
+func TestMirrorCapsALargeTree(t *testing.T) {
+	ctx := a11yPage(t)
+	const total, cap, focus = 12000, 5000, 11990
+	time.Sleep(260 * time.Millisecond)
+	ev[any](t, ctx, `capTree(`+strconv.Itoa(total)+`, `+strconv.Itoa(focus)+`)`)
+	got := ev[map[string]any](t, ctx, `(() => { const r = document.querySelector("[data-webcanvas-mirror]");
+		return {children: r.children.length, polite: r.children[0].textContent,
+		        focused: r.querySelectorAll("button").length > 0 && [...r.querySelectorAll("button")].some(b => b.textContent === "Item 11990"),
+		        last: !!r.querySelector('[aria-label="Item 11999"]'), first: [...r.querySelectorAll("button")].some(b => b.textContent === "Item 0"),
+		        status: r.children[2].textContent}; })()`)
+	if got["children"] != float64(cap+2) {
+		t.Errorf("a %d-node tree built %v children, want %d (2 live regions + the cap)", total, got["children"], cap+2)
+	}
+	want := "Accessibility view truncated: showing 4999 of 12000 items"
+	if got["status"] != want || got["polite"] != want {
+		t.Errorf("status %q, polite region %q, want %q", got["status"], got["polite"], want)
+	}
+	if got["focused"] != true || got["first"] != true || got["last"] != false {
+		t.Errorf("focused kept %v, first kept %v, last kept %v (want true, true, false)", got["focused"], got["first"], got["last"])
+	}
+	// Back under the cap, the truncation notice goes and everything shows.
+	setNodes(t, ctx, sample)
+	if n := ev[int](t, ctx, `document.querySelector("[data-webcanvas-mirror]").children.length`); n != 2+len(sample) {
+		t.Errorf("after shrinking, %d children, want %d", n, 2+len(sample))
+	}
+}

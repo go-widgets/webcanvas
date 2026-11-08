@@ -21,8 +21,8 @@ func (s *scene) Size() (int, int)      { return 400, 300 }
 func (s *scene) Draw([]byte)           {}
 func (s *scene) Move(int, int) bool    { return false }
 func (s *scene) Context(int, int) bool { return false }
-func (s *scene) Char(string) bool      { return false }
-func (s *scene) KeyDown(k string) bool { push("__keys", "down "+k); return false }
+func (s *scene) Char(k string) bool    { push("__keys", "char "+k); return consume() }
+func (s *scene) KeyDown(k string) bool { push("__keys", "down "+k); return consume() }
 func (s *scene) Click(x, y int) bool {
 	push("__clicks", "click "+strconv.Itoa(x)+","+strconv.Itoa(y))
 	return false
@@ -32,6 +32,10 @@ func (s *scene) Release(x, y int) bool {
 	return false
 }
 func (s *scene) A11yNodes() []webcanvas.A11yNode { return s.nodes }
+
+// consume is true when the page asked the scene to take every key
+// (window.__consume), as a toolkit button that activates on Enter does.
+func consume() bool { return js.Global().Get("__consume").Truthy() }
 
 func push(name, v string) {
 	l := js.Global().Get(name)
@@ -63,6 +67,16 @@ func main() {
 		t0 := js.Global().Get("performance").Call("now").Float()
 		surf.Refresh()
 		return js.Global().Get("performance").Call("now").Float() - t0
+	}))
+	// capTree(n, focus) sets n nodes with node `focus` focused (-1 for none) and
+	// draws a frame.
+	js.Global().Set("capTree", js.FuncOf(func(_ js.Value, args []js.Value) any {
+		sc.nodes = benchTree("create", args[0].Int())
+		if f := args[1].Int(); f >= 0 {
+			sc.nodes[f].Focused = true
+		}
+		surf.Refresh()
+		return nil
 	}))
 	js.Global().Set("focusSurface", js.FuncOf(func(js.Value, []js.Value) any { surf.Focus(); return nil }))
 	js.Global().Set("closeSurface", js.FuncOf(func(js.Value, []js.Value) any { surf.Close(); return nil }))

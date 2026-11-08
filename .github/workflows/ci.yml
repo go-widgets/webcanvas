@@ -85,3 +85,5 @@ jobs:
           grep -q -- '--- PASS: TestMirrorTreatsMarkupAsData' browser.log
           grep -q -- '--- PASS: TestMirrorThrottle' browser.log
           grep -q -- '--- PASS: TestMirrorCloseRemovesTheRoot' browser.log
+          grep -q -- '--- PASS: TestMirrorEnterAndSpaceActivateExactlyOnce' browser.log
+          grep -q -- '--- PASS: TestMirrorCapsALargeTree' browser.log
