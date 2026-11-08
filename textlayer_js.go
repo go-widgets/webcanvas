@@ -33,6 +33,7 @@ type layer struct {
 	geom   layerGeom
 	hasG   bool
 	divs   []js.Value
+	drawn  []string // the text of each div as the layer wrote it, so a keystroke reads no DOM
 	fs     float64
 	adv    map[rune]float64
 	ctx    js.Value
@@ -134,7 +135,7 @@ func (l *layer) sync(n A11yNode, scale float64) {
 				rewrite[i] = i
 			}
 		} else {
-			rewrite = lineChange(l.shown(), l.lines)
+			rewrite = lineChange(l.drawn, l.lines)
 		}
 		l.geom, l.hasG = g, true
 		l.render(rewrite, all)
@@ -142,19 +143,11 @@ func (l *layer) sync(n A11yNode, scale float64) {
 	l.writeSelection(false)
 }
 
-// shown is the text of the lines the DOM holds now.
-func (l *layer) shown() []string {
-	out := make([]string, len(l.divs))
-	for i, d := range l.divs {
-		out[i] = d.Get("textContent").String()
-	}
-	return out
-}
-
 func (l *layer) truncateTo(n int) {
 	for len(l.divs) > n {
 		l.divs[len(l.divs)-1].Call("remove")
 		l.divs = l.divs[:len(l.divs)-1]
+		l.drawn = l.drawn[:len(l.drawn)-1]
 	}
 }
 
@@ -170,11 +163,13 @@ func (l *layer) render(rewrite []int, restyle bool) {
 			d = doc().Call("createElement", "div")
 			l.el.Call("appendChild", d)
 			l.divs = append(l.divs, d)
+			l.drawn = append(l.drawn, "")
 			restyle = true
 		}
 		if restyle {
 			d.Call("setAttribute", "style", lineStyle(l.geom, i))
 		}
+		l.drawn[i] = l.lines[i]
 		d.Set("textContent", "")
 		for _, sp := range planLine(l.lines[i], l.geom.Cell, l.width) {
 			s := doc().Call("createElement", "span")
