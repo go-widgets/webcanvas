@@ -270,30 +270,33 @@ func dedupe(ns []A11yNode) []A11yNode {
 // A tree with duplicate keys is reduced to the first node of each.
 func mirrorPlan(prev, next frame) []op {
 	prevNodes, nextNodes := dedupe(prev.Nodes), dedupe(next.Nodes)
-	prevSpec := make(map[string]elemSpec, len(prevNodes))
+	// Specs are built only for nodes that differ: a node equal to its previous
+	// self (at the same scale) has the same element, so the common frame, where
+	// almost nothing changed, costs two map builds and no ariaFor at all.
+	prevBy := make(map[string]A11yNode, len(prevNodes))
 	for _, n := range prevNodes {
-		prevSpec[n.Key] = ariaFor(n, prev.Scale)
+		prevBy[n.Key] = n
 	}
-	nextSpec := make(map[string]elemSpec, len(nextNodes))
+	nextBy := make(map[string]A11yNode, len(nextNodes))
 	for _, n := range nextNodes {
-		nextSpec[n.Key] = ariaFor(n, next.Scale)
+		nextBy[n.Key] = n
 	}
+	sameScale := prev.Scale == next.Scale
 	var ops []op
 	cur := make([]string, 0, len(prevNodes)) // the keys the DOM holds, in order
 	for _, n := range prevNodes {
-		ns, still := nextSpec[n.Key]
-		if !still || ns.Tag != prevSpec[n.Key].Tag {
+		nn, still := nextBy[n.Key]
+		if !still || (!(sameScale && n == nn) && ariaFor(n, prev.Scale).Tag != ariaFor(nn, next.Scale).Tag) {
 			ops = append(ops, op{Kind: opRemove, Key: n.Key})
-			delete(prevSpec, n.Key)
+			delete(prevBy, n.Key)
 			continue
 		}
 		cur = append(cur, n.Key)
 	}
 	for i, n := range nextNodes {
-		spec := nextSpec[n.Key]
-		old, existed := prevSpec[n.Key]
+		pn, existed := prevBy[n.Key]
 		if !existed {
-			ops = append(ops, op{Kind: opCreate, Key: n.Key, Index: i, Spec: spec})
+			ops = append(ops, op{Kind: opCreate, Key: n.Key, Index: i, Spec: ariaFor(n, next.Scale)})
 			cur = insertAt(cur, i, n.Key)
 			continue
 		}
@@ -302,7 +305,10 @@ func mirrorPlan(prev, next frame) []op {
 			cur = insertAt(append(cur[:j], cur[j+1:]...), i, n.Key)
 			ops = append(ops, op{Kind: opMove, Key: n.Key, Index: i})
 		}
-		if u, changed := specDiff(old, spec); changed {
+		if sameScale && pn == n {
+			continue
+		}
+		if u, changed := specDiff(ariaFor(pn, prev.Scale), ariaFor(n, next.Scale)); changed {
 			u.Key = n.Key
 			ops = append(ops, u)
 		}
