@@ -222,6 +222,9 @@ func MountWith(canvas js.Value, app App, p Presenter) *Surface {
 			}
 		})
 	}
+	if mir != nil {
+		mir.scene, mir.render = app, render
+	}
 	// A [RepaintAware] scene gets a way to ask for a frame from any goroutine.
 	// One frame is in flight at most: the flag is cleared when it is drawn.
 	if ra, ok := app.(RepaintAware); ok {

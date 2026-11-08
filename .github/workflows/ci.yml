@@ -87,3 +87,9 @@ jobs:
           grep -q -- '--- PASS: TestMirrorCloseRemovesTheRoot' browser.log
           grep -q -- '--- PASS: TestMirrorEnterAndSpaceActivateExactlyOnce' browser.log
           grep -q -- '--- PASS: TestMirrorCapsALargeTree' browser.log
+          grep -q -- '--- PASS: TestTextLayerPositioning' browser.log
+          grep -q -- '--- PASS: TestTextLayerAXTree' browser.log
+          grep -q -- '--- PASS: TestTextLayerFindAndCrossSelection' browser.log
+          grep -q -- '--- PASS: TestTextLayerTypingInsertsOnce' browser.log
+          grep -q -- '--- PASS: TestTextLayerComposition' browser.log
+          grep -q -- '--- PASS: TestTextLayerIsBounded' browser.log
