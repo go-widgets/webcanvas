@@ -207,6 +207,43 @@ Measured in headless Chrome, 2,000 nodes (`browsertest`, `go test -v -run
 TestMirrorCost`): building the tree 70 ms, one changed node 6.5 ms, an unchanged
 frame 0.5 ms, every node moved 36 ms, every node reordered 119 ms.
 
+## The text layer
+
+A scene that also implements `TextInputHost` (`TextInputFor(key string)
+textinput.Client`, from [go-widgets/textinput](https://github.com/go-widgets/textinput))
+gets a **text layer** for each textbox node it publishes
+([#21](https://github.com/go-widgets/webcanvas/issues/21), W3). The layer
+replaces the plain `div role=textbox`: it is the widget's only accessibility
+element, its editing host and the text the browser's find and selection see.
+
+- **Structure:** one `div` per model line, placed at the model's line position
+  (`InputRect`), the runes of each line put on the toolkit's cell grid by
+  `letter-spacing` from a measured width table (`planLine`). Text and caret are
+  transparent, so the canvas still paints the glyphs. `white-space: pre`,
+  `tab-size: 1`. The browser paints the selection and the find matches
+  (`::selection`, `::search-text`).
+- **Editing:** `contenteditable="plaintext-only"` only while the layer has
+  focus, so a selection dragged between prose and code is an ordinary one.
+  `keydown` goes through `routeKey`: navigation and modified keys to
+  `App.KeyDown`, printable keys not at all; text arrives through `beforeinput`
+  (`routeInput`) and is applied once with `ReplaceInput`. A composition runs in
+  place in the DOM line and reaches the model through `SetMarkedInput`
+  (`compositionEdit`); `compositionend` commits and rewrites the line.
+  `selectionchange` calls `SetInputSelection`. An `input` the layer did not
+  understand goes through `textinput.Reconcile`.
+- **Bounds:** 32 layers per surface, 20,000 lines per layer, 4,000 UTF-16 units
+  per line. Text reaches the DOM through `textContent` only.
+- **Tests:** the pure part is at 100% coverage. `browsertest/` checks, in
+  headless Chrome, a positioning error under 0.05 px at device pixel ratios 1
+  and 2, one textbox in the AX tree whose value is the code and no second copy,
+  `window.find`, a selection from prose into code and from code into prose, one
+  "a" for one keystroke, `Input.imeSetComposition` and its commit, and the
+  bound. `TEXTLAYER_COST=1 go test -run TestTextLayerKeystrokeCost -v` prints
+  the keystroke cost table.
+- **Not checked:** that a Ctrl+F match is visible over the canvas in Chrome,
+  Safari and Firefox (it needs a headed browser), and the canvas still paints
+  its own selection band.
+
 ## On the GPU
 
 `RunWith(id, app, presenter)` hands the canvas to a `Presenter` instead of
