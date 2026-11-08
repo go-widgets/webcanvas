@@ -35,7 +35,10 @@ WebAssembly.instantiateStreaming(fetch("page.wasm"), go.importObject).then(r => 
 func serve(t *testing.T) string { return servePage(t, "./page") }
 
 // servePage builds the page in dir for js/wasm and serves it.
-func servePage(t *testing.T, page string) string {
+func servePage(t *testing.T, page string) string { return servePageHTML(t, page, index) }
+
+// servePageHTML is servePage with the page's own index.html.
+func servePageHTML(t *testing.T, page, html string) string {
 	t.Helper()
 	dir := t.TempDir()
 	build := exec.Command("go", "build", "-o", filepath.Join(dir, "page.wasm"), page)
@@ -48,7 +51,7 @@ func servePage(t *testing.T, page string) string {
 		t.Fatal(err)
 	}
 	_ = os.WriteFile(filepath.Join(dir, "wasm_exec.js"), execJS, 0o644)
-	_ = os.WriteFile(filepath.Join(dir, "index.html"), []byte(index), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "index.html"), []byte(html), 0o644)
 	srv := httptest.NewServer(http.FileServer(http.Dir(dir)))
 	t.Cleanup(srv.Close)
 	return srv.URL
