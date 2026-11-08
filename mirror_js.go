@@ -31,6 +31,16 @@ type mirror struct {
 	focus string              // key of the focused node as published ("" none)
 	th    throttle
 
+	// The text layer (#21 revision 1): scene, render and the layers' container,
+	// which is visible where the clipped root is not.
+	s      *Surface
+	scene  App
+	render func()
+	tih    TextInputHost
+	host   js.Value
+	layers map[string]*layer
+	ph     map[string]js.Value // key -> the empty node that keeps a layer's place under root
+
 	// keyAt is when a key press last activated a mirror element (performance.now).
 	keyAt float64
 	// force makes the next update publish (a resize).
@@ -48,7 +58,9 @@ func doc() js.Value { return js.Global().Get("document") }
 
 func newMirror(s *Surface, canvas js.Value, app A11yAware, click func(x, y int)) *mirror {
 	m := &mirror{app: app, canvas: canvas, click: click,
-		els: map[string]js.Value{}, byKey: map[string]A11yNode{}, timer: js.Undefined()}
+		els: map[string]js.Value{}, byKey: map[string]A11yNode{}, timer: js.Undefined(),
+		s: s, layers: map[string]*layer{}, ph: map[string]js.Value{}}
+	m.tih, _ = app.(TextInputHost)
 	d := doc()
 	m.root = d.Call("createElement", "div")
 	m.root.Call("setAttribute", "data-webcanvas-mirror", "")
@@ -66,9 +78,12 @@ func newMirror(s *Surface, canvas js.Value, app A11yAware, click func(x, y int))
 	m.alert.Call("setAttribute", "aria-atomic", "true")
 	m.root.Call("appendChild", m.polite)
 	m.root.Call("appendChild", m.alert)
+	m.host = d.Call("createElement", "div")
+	m.host.Call("setAttribute", "data-webcanvas-layers", "")
 	m.place()
 	if p := canvas.Get("parentNode"); p.Truthy() {
 		p.Call("insertBefore", m.root, canvas.Get("nextSibling"))
+		p.Call("insertBefore", m.host, m.root.Get("nextSibling"))
 	}
 
 	m.timerFn = js.FuncOf(func(js.Value, []js.Value) any {
@@ -101,7 +116,7 @@ func newMirror(s *Surface, canvas js.Value, app A11yAware, click func(x, y int))
 	})
 	// A focus that assistive technology sends to a focusable node is a click,
 	// so toolkit focus follows. Our own focus() calls are flagged and ignored.
-	on(&s.all, m.root, "focusin", nil, func(ev js.Value) {
+	focusIn := func(ev js.Value) {
 		if m.syncing {
 			return
 		}
@@ -109,13 +124,16 @@ func newMirror(s *Surface, canvas js.Value, app A11yAware, click func(x, y int))
 			x, y := centre(n)
 			m.click(x, y)
 		}
-	})
+	}
+	on(&s.all, m.root, "focusin", nil, focusIn)
+	on(&s.all, m.host, "focusin", nil, focusIn)
 	// A click on the canvas focuses it (tabindex): hand the focus to the mirror,
 	// where the keys are heard.
 	on(&s.all, canvas, "focus", nil, func(js.Value) { m.syncFocus() })
 	s.all.add(func() {}, func() {
 		js.Global().Call("clearTimeout", m.timer)
 		m.timerFn.Release()
+		m.host.Call("remove")
 		m.root.Call("remove")
 	})
 	return m
@@ -123,7 +141,7 @@ func newMirror(s *Surface, canvas js.Value, app A11yAware, click func(x, y int))
 
 // nodeOf finds the published node whose element is target or contains it.
 func (m *mirror) nodeOf(target js.Value) (A11yNode, bool) {
-	for el := target; el.Truthy() && !el.Equal(m.root); el = el.Get("parentNode") {
+	for el := target; el.Truthy() && !el.Equal(m.root) && !el.Equal(m.host); el = el.Get("parentNode") {
 		if k := el.Get("wcKey"); k.Type() == js.TypeString {
 			n, ok := m.byKey[k.String()]
 			return n, ok
@@ -144,8 +162,9 @@ func (m *mirror) scale() float64 {
 
 // place puts the root over the canvas.
 func (m *mirror) place() {
-	m.root.Call("setAttribute", "style", rootBox(m.canvas.Get("offsetLeft").Float(), m.canvas.Get("offsetTop").Float(),
-		m.canvas.Get("clientWidth").Float(), m.canvas.Get("clientHeight").Float()))
+	l, t, w, h := m.canvas.Get("offsetLeft").Float(), m.canvas.Get("offsetTop").Float(), m.canvas.Get("clientWidth").Float(), m.canvas.Get("clientHeight").Float()
+	m.root.Call("setAttribute", "style", rootBox(l, t, w, h))
+	m.host.Call("setAttribute", "style", hostStyle(l, t, w, h))
 }
 
 func focusKey(ns []A11yNode) string {
@@ -164,6 +183,7 @@ func (m *mirror) update(force bool) {
 	// Never build more than maxMirrorNodes elements, whatever the scene returns.
 	nodes, _ := capNodes(m.app.A11yNodes(), maxMirrorNodes)
 	scale := m.scale()
+	m.syncLayers(nodes, scale) // never throttled: a keystroke shows at once
 	sig := treeSig(nodes, scale)
 	// Focus is the one thing a user waits on: a change of the focused node is
 	// never held back.
@@ -222,7 +242,7 @@ func (m *mirror) apply(nodes []A11yNode, scale float64) {
 // controls are never robbed.
 func (m *mirror) syncFocus() {
 	active := doc().Get("activeElement")
-	if !active.Truthy() || !(active.Equal(m.root) || m.root.Call("contains", active).Bool() || active.Equal(m.canvas)) {
+	if !active.Truthy() || !(active.Equal(m.root) || m.root.Call("contains", active).Bool() || m.host.Call("contains", active).Bool() || active.Equal(m.canvas)) {
 		return
 	}
 	want := m.root
@@ -235,6 +255,9 @@ func (m *mirror) syncFocus() {
 	m.syncing = true
 	want.Call("focus", map[string]any{"preventScroll": true})
 	m.syncing = false
+	if l := m.layers[m.focus]; l != nil && m.focus != "" {
+		l.writeSelection(true) // focus() puts the caret at the start: put it back
+	}
 }
 
 // elementFor builds the element of a create op.
@@ -246,6 +269,11 @@ func (m *mirror) elementFor(o op) js.Value {
 	el := doc().Call("createElement", o.Spec.Tag)
 	el.Set("wcKey", o.Key)
 	m.setSpec(el, o.Spec.Attrs, nil, o.Spec.Text, true)
+	if m.tih != nil && o.Spec.Attrs["role"] == "textbox" && len(m.layers) < maxLayers {
+		if c := m.tih.TextInputFor(o.Key); c != nil {
+			m.layers[o.Key] = m.newLayer(el, o.Key, c)
+		}
+	}
 	return el
 }
 
@@ -268,19 +296,36 @@ func (m *mirror) run(o op) {
 	switch o.Kind {
 	case opRemove:
 		m.els[o.Key].Call("remove")
+		if p, ok := m.ph[o.Key]; ok {
+			p.Call("remove")
+			delete(m.ph, o.Key)
+			m.layers[o.Key].close()
+			delete(m.layers, o.Key)
+		}
 		delete(m.els, o.Key)
 		m.count--
 	case opCreate:
 		el := m.elementFor(o)
 		m.els[o.Key] = el
+		place := el
+		if m.layers[o.Key] != nil {
+			// A layer lives in the visible container; an empty node keeps its
+			// place among the root's children, so indexes stay the plan's.
+			place = doc().Call("createElement", "span")
+			m.ph[o.Key] = place
+			m.host.Call("appendChild", el)
+		}
 		if o.Index >= m.count {
-			m.root.Call("appendChild", el)
+			m.root.Call("appendChild", place)
 		} else {
-			m.root.Call("insertBefore", el, m.at(o.Index))
+			m.root.Call("insertBefore", place, m.at(o.Index))
 		}
 		m.count++
 	case opMove:
 		el := m.els[o.Key]
+		if p, ok := m.ph[o.Key]; ok {
+			el = p
+		}
 		el.Call("remove")
 		if o.Index >= m.count-1 {
 			m.root.Call("appendChild", el)
@@ -288,6 +333,19 @@ func (m *mirror) run(o op) {
 			m.root.Call("insertBefore", el, m.at(o.Index))
 		}
 	case opUpdate:
-		m.setSpec(m.els[o.Key], o.Set, o.Del, o.Spec.Text, o.SetText)
+		// A layer's text is its lines: the layer rewrites them, not textContent.
+		m.setSpec(m.els[o.Key], o.Set, o.Del, o.Spec.Text, o.SetText && m.layers[o.Key] == nil)
+	}
+}
+
+// syncLayers brings every text layer to its model.
+func (m *mirror) syncLayers(nodes []A11yNode, scale float64) {
+	if len(m.layers) == 0 {
+		return
+	}
+	for _, n := range nodes {
+		if l := m.layers[n.Key]; l != nil {
+			l.sync(n, scale)
+		}
 	}
 }

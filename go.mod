@@ -9,4 +9,7 @@ require (
 	github.com/go-widgets/painter v0.17.0
 )
 
-require github.com/go-gfx/gfx v0.41.0 // indirect
+require (
+	github.com/go-gfx/gfx v0.41.0 // indirect
+	github.com/go-widgets/textinput v0.1.1 // indirect
+)

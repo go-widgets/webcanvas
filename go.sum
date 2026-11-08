@@ -10,3 +10,5 @@ github.com/go-widgets/gpupainter v0.4.0 h1:0vCn1fdCmKzY9HvA7ZIvuShTaMez/4J1boFmo
 github.com/go-widgets/gpupainter v0.4.0/go.mod h1:FsiQjTB+EbxOprUMPqExALrzSyrNta3wTKbpA8dbfUM=
 github.com/go-widgets/painter v0.17.0 h1:PB/Xr0flFR9qL2/RPhbJOeyU6PPzcGyf3Qx4RRngowg=
 github.com/go-widgets/painter v0.17.0/go.mod h1:8kERcZUoWNyLIas1NsMWiYynvvyx+hcB2cNIh0Bx0yc=
+github.com/go-widgets/textinput v0.1.1 h1:3NZD5CJm5XYSWA3YzQ64tXC86gnEQ0UlNPL5qJeIUSs=
+github.com/go-widgets/textinput v0.1.1/go.mod h1:Y/k3PDtUEMQ/4psCVKdmUStNWa/EsVAMcCKG2lEtQ5c=
