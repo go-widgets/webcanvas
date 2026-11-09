@@ -262,8 +262,13 @@ toolkit.SetClipboard(webcanvas.NewClipboard())
   paste event's `clipboardData`. So Ctrl+V and Cmd+V (Shift allowed, Alt not)
   are held at keydown and not prevented. The browser fires paste on the
   focused canvas, the bridge takes its text, and only then is the key
-  delivered: the widget's own paste reads what the user copied elsewhere. If
-  no paste event comes, the key is delivered anyway, as before the bridge.
+  delivered: the widget's own paste reads what the user copied elsewhere. Some
+  shortcuts fire no paste event on a canvas: Chromium's Ctrl+Shift+V, which is
+  a terminal's paste on Linux, is "paste and match style" and does not (the
+  wasmcontainers playground's e2e showed it). For those, the bridge reads
+  `navigator.clipboard.readText()` instead, which the browser may ask the user
+  to allow once, and then delivers the key. If the read is refused too, the
+  key is delivered anyway, as before the bridge.
   The key a scene sees does not change, only when it arrives: a terminal that
   sends Ctrl+V as `^V` still does.
 - **The bound:** a paste keeps at most 1 MiB, cut on a rune boundary.

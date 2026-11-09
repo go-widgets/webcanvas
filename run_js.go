@@ -325,11 +325,24 @@ func MountWith(canvas js.Value, app App, p Presenter) *Surface {
 			}
 		}
 	}
+	// No paste event by the time the keydown's task is over: ask the
+	// browser for its text instead, then deliver (see readClipboard).
 	fallback := js.FuncOf(func(js.Value, []js.Value) any {
 		guard(func() {
-			if gate.timeout() {
-				deliverHeld()
+			if !gate.timeout() {
+				return
 			}
+			c := pageClipboard.Load()
+			if c == nil {
+				deliverHeld()
+				return
+			}
+			readClipboard(func(text string, ok bool) {
+				if ok {
+					c.fromBrowser(text)
+				}
+				deliverHeld()
+			})
 		})
 		return nil
 	})

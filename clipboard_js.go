@@ -37,3 +37,49 @@ func NewClipboard() *Clipboard {
 	pageClipboard.Store(c)
 	return c
 }
+
+// readClipboard asks the browser for its text (navigator.clipboard.readText),
+// the fallback when a paste shortcut fired no paste event: Chromium's
+// Ctrl+Shift+V ("paste and match style") does not on a non-editable canvas,
+// and that is a terminal's paste on Linux. The browser may ask the user once.
+// done runs exactly once: ok is false when the API is missing, throws, or the
+// read is refused.
+func readClipboard(done func(text string, ok bool)) {
+	finished := false
+	finish := func(text string, ok bool) {
+		if !finished {
+			finished = true
+			done(text, ok)
+		}
+	}
+	defer func() {
+		if recover() != nil {
+			finish("", false) // readText threw (an insecure context, say)
+		}
+	}()
+	cb := js.Global().Get("navigator").Get("clipboard")
+	if !cb.Truthy() || !cb.Get("readText").Truthy() {
+		finish("", false)
+		return
+	}
+	var onOK, onErr js.Func
+	release := func() {
+		onOK.Release()
+		onErr.Release()
+	}
+	onOK = js.FuncOf(func(_ js.Value, args []js.Value) any {
+		text := ""
+		if len(args) > 0 && args[0].Type() == js.TypeString {
+			text = args[0].String()
+		}
+		release()
+		guard(func() { finish(text, true) })
+		return nil
+	})
+	onErr = js.FuncOf(func(js.Value, []js.Value) any {
+		release()
+		guard(func() { finish("", false) })
+		return nil
+	})
+	cb.Call("readText").Call("then", onOK, onErr)
+}
