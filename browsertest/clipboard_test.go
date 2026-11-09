@@ -5,6 +5,7 @@ package browsertest
 import (
 	"context"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -61,13 +62,37 @@ func TestPasteShortcutWaitsForThePasteEvent(t *testing.T) {
 	waitLog(t, ctx, "b", []string{"down v clip=from the OS"})
 }
 
-// With no paste event the held key still arrives, once, with the clipboard as
-// it was: the behaviour before the bridge.
+// stubReadText replaces navigator.clipboard.readText: resolving with text, or
+// rejecting (a denied permission) when text is "".
+func stubReadText(t *testing.T, ctx context.Context, text string) {
+	t.Helper()
+	js := `navigator.clipboard.readText = () => Promise.reject(new DOMException("denied", "NotAllowedError"))`
+	if text != "" {
+		js = `navigator.clipboard.readText = () => Promise.resolve(` + strconv.Quote(text) + `)`
+	}
+	if _, err := chromedp.Run(ctx, chromedp.Evaluate[any](`(() => { `+js+` })()`)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// With no paste event and the clipboard read refused, the held key still
+// arrives, once, with the clipboard as it was: the behaviour before the bridge.
 func TestPasteShortcutWithoutPasteEventIsDeliveredOnce(t *testing.T) {
 	ctx := surfacesPage(t)
+	stubReadText(t, ctx, "")
 	click(t, ctx, "a")
 	pasteKey(t, ctx)
 	waitLog(t, ctx, "a", []string{"down v clip="})
+}
+
+// No paste event (Chromium's Ctrl+Shift+V on a canvas fires none): the
+// fallback reads navigator.clipboard and delivers the key once, with that text.
+func TestPasteShortcutWithoutPasteEventReadsTheClipboard(t *testing.T) {
+	ctx := surfacesPage(t)
+	stubReadText(t, ctx, "read from the OS")
+	click(t, ctx, "a")
+	pasteKey(t, ctx)
+	waitLog(t, ctx, "a", []string{"down v clip=read from the OS"})
 }
 
 // Copy: SetClipboardText hands the text to navigator.clipboard.writeText.

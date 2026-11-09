@@ -95,4 +95,5 @@ jobs:
           grep -q -- '--- PASS: TestTextLayerIsBounded' browser.log
           grep -q -- '--- PASS: TestPasteShortcutWaitsForThePasteEvent' browser.log
           grep -q -- '--- PASS: TestPasteShortcutWithoutPasteEventIsDeliveredOnce' browser.log
+          grep -q -- '--- PASS: TestPasteShortcutWithoutPasteEventReadsTheClipboard' browser.log
           grep -q -- '--- PASS: TestCopyReachesTheBrowsersClipboard' browser.log
