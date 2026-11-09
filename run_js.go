@@ -310,13 +310,64 @@ func MountWith(canvas js.Value, app App, p Presenter) *Surface {
 	// or modified key is a KeyDown. bindKeys moves the whole group to another
 	// element (the accessibility mirror root, later) and back.
 	ku, _ := app.(KeyUpper)
+	// A paste shortcut is held until the browser's paste event refreshes the
+	// clipboard bridge, or a fallback timer (see clipboard.go); held is the
+	// delivery, nil when nothing is held.
+	var (
+		gate pasteGate
+		held func()
+	)
+	deliverHeld := func() {
+		if f := held; f != nil {
+			held = nil
+			if !closed.Load() {
+				f()
+			}
+		}
+	}
+	fallback := js.FuncOf(func(js.Value, []js.Value) any {
+		guard(func() {
+			if gate.timeout() {
+				deliverHeld()
+			}
+		})
+		return nil
+	})
+	s.all.add(func() {}, fallback.Release)
 	bindKeys := func(target js.Value) {
 		s.keys.clear()
 		s.keyTarget = target
+		on(&s.keys, target, "paste", nil, func(ev js.Value) {
+			c := pageClipboard.Load()
+			if c == nil {
+				return
+			}
+			text := ""
+			if dt := ev.Get("clipboardData"); dt.Truthy() {
+				text = dt.Call("getData", "text/plain").String()
+			}
+			if gate.paste(c, text) {
+				ev.Call("preventDefault")
+				deliverHeld()
+			}
+		})
 		on(&s.keys, target, "keydown", nil, func(ev js.Value) {
+			key := ev.Get("key").String()
+			if gate.hold(pageClipboard.Load() != nil, key, ev.Get("ctrlKey").Bool(), ev.Get("metaKey").Bool(), ev.Get("altKey").Bool()) {
+				// Not prevented: the browser's default action fires paste.
+				m, code := mods(ev), keyCode(ev)
+				held = func() {
+					tellModifiers(app, m)
+					tellKeyCode(app, code)
+					if app.KeyDown(key) {
+						render()
+					}
+				}
+				js.Global().Call("setTimeout", fallback, 0)
+				return
+			}
 			tellModifiers(app, mods(ev))
 			tellKeyCode(app, keyCode(ev))
-			key := ev.Get("key").String()
 			var changed bool
 			if isTextKey(key, ev.Get("ctrlKey").Bool(), ev.Get("metaKey").Bool(), ev.Get("altKey").Bool()) {
 				changed = app.Char(key)

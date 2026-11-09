@@ -244,6 +244,41 @@ element, its editing host and the text the browser's find and selection see.
   Safari and Firefox (it needs a headed browser), and the canvas still paints
   its own selection band.
 
+## The clipboard
+
+A canvas has no clipboard of its own. A widget toolkit that keeps one in
+memory (go-widgets/toolkit's default) copies and pastes only inside the page.
+`NewClipboard()` connects it to the browser's clipboard. Install it once at
+startup:
+
+```go
+toolkit.SetClipboard(webcanvas.NewClipboard())
+```
+
+- **Copy:** the text also goes to `navigator.clipboard.writeText`. The copy
+  runs inside the keydown that asked for it, which is the user activation the
+  Clipboard API requires. A refused write keeps the copy inside the page.
+- **Paste:** the only synchronous read that needs no permission prompt is a
+  paste event's `clipboardData`. So Ctrl+V and Cmd+V (Shift allowed, Alt not)
+  are held at keydown and not prevented. The browser fires paste on the
+  focused canvas, the bridge takes its text, and only then is the key
+  delivered: the widget's own paste reads what the user copied elsewhere. If
+  no paste event comes, the key is delivered anyway, as before the bridge.
+  The key a scene sees does not change, only when it arrives: a terminal that
+  sends Ctrl+V as `^V` still does.
+- **The bound:** a paste keeps at most 1 MiB, cut on a rune boundary.
+- **The Edit menu:** a paste from the browser's Edit menu refreshes the text
+  without pressing a key.
+
+Checked in headless Chrome (`browsertest/clipboard_test.go`): the key
+arrives once, after the paste event, carrying its text; with no paste event
+it arrives once, from the fallback; a copy calls `writeText`. The paste event
+in that test is dispatched by the page, because headless Chrome offers no way
+to choose what its clipboard holds. **Not checked by a test:** a real Cmd+V
+in a headed Chrome, Firefox or Safari, in particular whether Safari fires
+paste on a focused, non-editable canvas. Where it does not, the fallback keeps
+the old behaviour.
+
 ## On the GPU
 
 `RunWith(id, app, presenter)` hands the canvas to a `Presenter` instead of
