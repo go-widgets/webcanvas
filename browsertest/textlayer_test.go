@@ -30,10 +30,10 @@ WebAssembly.instantiateStreaming(fetch("page.wasm"), go.importObject).then(r => 
 
 // textPage serves the text-layer page at the given device pixel ratio and waits
 // for it. The ratio is set before the page loads, so the scene sizes itself at it.
-func textPage(t *testing.T, dpr float64) context.Context { return textPageAt(t, dpr, "") }
+func textPage(t testing.TB, dpr float64) context.Context { return textPageAt(t, dpr, "") }
 
 // textPageAt is textPage opened as #hash: the scene starts with hash as its text.
-func textPageAt(t *testing.T, dpr float64, hash string) context.Context {
+func textPageAt(t testing.TB, dpr float64, hash string) context.Context {
 	t.Helper()
 	url := servePageHTML(t, "./textpage", textIndex)
 	ctx := browser(t)
@@ -59,7 +59,7 @@ func textPageAt(t *testing.T, dpr float64, hash string) context.Context {
 	}
 }
 
-func setText(t *testing.T, ctx context.Context, s string) {
+func setText(t testing.TB, ctx context.Context, s string) {
 	t.Helper()
 	ev[any](t, ctx, `setText(`+strconv.Quote(s)+`)`)
 	time.Sleep(50 * time.Millisecond)
@@ -73,7 +73,7 @@ type modelState struct {
 	Keys          []string
 }
 
-func state(t *testing.T, ctx context.Context) modelState {
+func state(t testing.TB, ctx context.Context) modelState {
 	t.Helper()
 	var m modelState
 	if err := json.Unmarshal([]byte(ev[string](t, ctx, `modelState()`)), &m); err != nil {

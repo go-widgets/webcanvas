@@ -38,7 +38,7 @@ func serve(t *testing.T) string { return servePage(t, "./page") }
 func servePage(t *testing.T, page string) string { return servePageHTML(t, page, index) }
 
 // servePageHTML is servePage with the page's own index.html.
-func servePageHTML(t *testing.T, page, html string) string {
+func servePageHTML(t testing.TB, page, html string) string {
 	t.Helper()
 	dir := t.TempDir()
 	build := exec.Command("go", "build", "-o", filepath.Join(dir, "page.wasm"), page)
@@ -57,7 +57,7 @@ func servePageHTML(t *testing.T, page, html string) string {
 	return srv.URL
 }
 
-func browser(t *testing.T) context.Context {
+func browser(t testing.TB) context.Context {
 	t.Helper()
 	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.Flag("headless", true))
 	if p := os.Getenv("CHROME"); p != "" {
@@ -67,7 +67,7 @@ func browser(t *testing.T) context.Context {
 	t.Cleanup(cancel)
 	ctx, cancel2 := chromedp.NewContext(actx)
 	t.Cleanup(cancel2)
-	ctx, cancel3 := context.WithTimeout(ctx, 60*time.Second)
+	ctx, cancel3 := context.WithTimeout(ctx, 5*time.Minute)
 	t.Cleanup(cancel3)
 	if _, err := chromedp.Run(ctx, chromedp.Navigate("about:blank")); err != nil {
 		t.Skipf("no Chrome to run the page in: %v", err)

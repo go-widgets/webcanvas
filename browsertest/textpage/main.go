@@ -70,10 +70,19 @@ func (m *model) target(s, e int) (int, int) {
 	return min(m.anchor, m.foc), max(m.anchor, m.foc)
 }
 
+// stamp tells the keystroke benchmark (the page's __stamp, when it installed
+// one) that the model or the canvas was updated, and when.
+func stamp(kind string) {
+	if f := js.Global().Get("__stamp"); f.Type() == js.TypeFunction {
+		f.Invoke(kind)
+	}
+}
+
 func (m *model) ReplaceInput(s, e int, t string) {
 	s, e = m.target(s, e)
 	m.replace(s, e, t)
 	m.set(m.text, s+textinput.Len(t))
+	stamp("model")
 }
 
 func (m *model) SetMarkedInput(t string, ss, se, rs, re int) {
@@ -82,12 +91,14 @@ func (m *model) SetMarkedInput(t string, ss, se, rs, re int) {
 	m.markS, m.markE = s, s+textinput.Len(t)
 	m.anchor, m.foc = s+ss, s+se
 	m.rev++
+	stamp("model")
 }
 
 func (m *model) UnmarkInput() {
 	if m.markS >= 0 {
 		m.markS, m.markE = -1, -1
 		m.rev++
+		stamp("model")
 	}
 }
 
@@ -100,7 +111,7 @@ type scene struct {
 }
 
 func (s *scene) Size() (int, int) { return int(400 * s.dpr), int(300 * s.dpr) }
-func (s *scene) Draw([]byte)      {}
+func (s *scene) Draw([]byte)      { stamp("draw") }
 func (s *scene) Click(int, int) bool {
 	return false
 }
@@ -110,6 +121,7 @@ func (s *scene) Context(int, int) bool { return false }
 func (s *scene) Char(string) bool      { s.chars++; return true }
 func (s *scene) KeyDown(k string) bool {
 	s.keys = append(s.keys, k)
+	defer stamp("model")
 	m := s.m
 	lo, hi := min(m.anchor, m.foc), max(m.anchor, m.foc)
 	switch k {
@@ -119,6 +131,10 @@ func (s *scene) KeyDown(k string) bool {
 		}
 		m.replace(lo, hi, "")
 		m.set(m.text, lo)
+		return true
+	case "Enter":
+		m.replace(lo, hi, "\n")
+		m.set(m.text, lo+1)
 		return true
 	case "ArrowLeft":
 		m.anchor, m.foc = max(m.foc-1, 0), max(m.foc-1, 0)
