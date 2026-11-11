@@ -204,6 +204,10 @@ func (m *mirror) update(force bool) {
 		m.timer = js.Undefined()
 	}
 	m.apply(nodes, scale)
+	// A layer created by this very apply has had no sync yet (the one above ran
+	// before it existed), and a scene that then goes idle draws no further frame:
+	// without this its text would be empty until something repainted.
+	m.syncLayers(nodes, scale)
 	m.th.published(sig, nowMS())
 }
 

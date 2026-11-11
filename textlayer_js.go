@@ -61,6 +61,10 @@ func ensureLayerCSS() {
 func (m *mirror) newLayer(el js.Value, key string, c textinput.Client) *layer {
 	ensureLayerCSS()
 	l := &layer{m: m, key: key, el: el, c: c, adv: map[rune]float64{}}
+	// The mirror made el with the node's value as its text. The layer's text is
+	// its lines, which sync writes; left in place, the first text would sit
+	// beside them and the browser would read the value twice.
+	el.Set("textContent", "")
 	el.Call("setAttribute", "data-webcanvas-layer", "")
 	el.Call("setAttribute", "spellcheck", "false")
 	el.Call("setAttribute", "autocapitalize", "off")
