@@ -30,12 +30,18 @@ WebAssembly.instantiateStreaming(fetch("page.wasm"), go.importObject).then(r => 
 
 // textPage serves the text-layer page at the given device pixel ratio and waits
 // for it. The ratio is set before the page loads, so the scene sizes itself at it.
-func textPage(t *testing.T, dpr float64) context.Context {
+func textPage(t *testing.T, dpr float64) context.Context { return textPageAt(t, dpr, "") }
+
+// textPageAt is textPage opened as #hash: the scene starts with hash as its text.
+func textPageAt(t *testing.T, dpr float64, hash string) context.Context {
 	t.Helper()
 	url := servePageHTML(t, "./textpage", textIndex)
 	ctx := browser(t)
 	if _, err := chromedp.Call(ctx, emulation.SetDeviceMetricsOverride, emulation.SetDeviceMetricsOverrideParams{Width: 800, Height: 700, DeviceScaleFactor: dpr}); err != nil {
 		t.Fatal(err)
+	}
+	if hash != "" {
+		url += "#" + hash
 	}
 	if _, err := chromedp.Run(ctx, chromedp.Navigate(url)); err != nil {
 		t.Fatal(err)
@@ -159,6 +165,29 @@ func TestTextLayerAXTree(t *testing.T) {
 		if strings.Contains(n.Name, "compute") || strings.Contains(n.Value, "compute") {
 			t.Errorf("a second copy of the code: %s %q %q", n.Role, n.Name, n.Value)
 		}
+	}
+}
+
+// A textbox created with its text already in it (a real scene's first frame) is
+// read once: the layer's lines replace the text the mirror first gave the
+// element, they do not sit beside it.
+func TestTextLayerCreatedWithTextIsReadOnce(t *testing.T) {
+	ctx := textPageAt(t, 1, "hello")
+	time.Sleep(300 * time.Millisecond)
+	var boxes []*ax
+	for _, n := range axTree(t, ctx) {
+		if !n.Ignored && n.Role == "textbox" {
+			boxes = append(boxes, n)
+		}
+	}
+	if len(boxes) != 1 {
+		t.Fatalf("%d textboxes, want 1", len(boxes))
+	}
+	if boxes[0].Value != "hello" {
+		t.Errorf("value %q, want %q", boxes[0].Value, "hello")
+	}
+	if got := ev[string](t, ctx, layerText); got != "hello" {
+		t.Errorf("layer lines %q, want %q", got, "hello")
 	}
 }
 

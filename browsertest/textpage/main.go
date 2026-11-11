@@ -149,6 +149,11 @@ func main() {
 	dpr := g.Get("devicePixelRatio").Float()
 	m := &model{dpr: dpr, markS: -1, markE: -1}
 	sc := &scene{m: m, dpr: dpr}
+	// A page opened as #text starts with that text, so the textbox is created
+	// with a value already in it (the usual case of a real scene).
+	if h := g.Get("location").Get("hash").String(); len(h) > 1 {
+		m.set(h[1:], 0)
+	}
 	surf := webcanvas.Mount(g.Get("document").Call("getElementById", "screen"), sc)
 	g.Set("setText", js.FuncOf(func(_ js.Value, a []js.Value) any {
 		m.set(a[0].String(), 0)
