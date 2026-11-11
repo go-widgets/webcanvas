@@ -62,7 +62,7 @@ type node struct {
 	Min, Max, Now          float64
 }
 
-func ev[T any](t *testing.T, ctx context.Context, js string) T {
+func ev[T any](t testing.TB, ctx context.Context, js string) T {
 	t.Helper()
 	v, err := chromedp.Run(ctx, chromedp.Evaluate[T](js))
 	if err != nil {
