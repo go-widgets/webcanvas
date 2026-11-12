@@ -5,6 +5,7 @@
 package webcanvas
 
 import (
+	"slices"
 	"strings"
 	"syscall/js"
 
@@ -33,6 +34,8 @@ type layer struct {
 	geom   layerGeom
 	hasG   bool
 	divs   []js.Value
+	flow   bool     // the lines are blocks in the flow, not placed one by one
+	first  js.Value // the div styled as the first line (flow layout)
 	drawn  []string // the text of each div as the layer wrote it, so a keystroke reads no DOM
 	fs     float64
 	adv    map[rune]float64
@@ -132,17 +135,13 @@ func (l *layer) sync(n A11yNode, scale float64) {
 			l.adv = map[rune]float64{}
 			l.ctx.Set("font", px(fs)+"px monospace")
 		}
-		var rewrite []int
 		if all {
-			rewrite = make([]int, len(l.lines))
-			for i := range rewrite {
-				rewrite[i] = i
-			}
+			l.geom, l.hasG = g, true
+			l.flow = g.flowOK()
+			l.renderAll()
 		} else {
-			rewrite = lineChange(l.drawn, l.lines)
+			l.splice(lineEdit(l.drawn, l.lines))
 		}
-		l.geom, l.hasG = g, true
-		l.render(rewrite, all)
 	}
 	l.writeSelection(false)
 }
@@ -155,31 +154,92 @@ func (l *layer) truncateTo(n int) {
 	}
 }
 
-// render rewrites the lines at the given indexes, restyling them when the
-// geometry changed, and drops the lines past the end.
-func (l *layer) render(rewrite []int, restyle bool) {
+// style writes the style line i has now. In the flow layout all lines but the
+// first share one style; otherwise each line has its own top.
+func (l *layer) style(i int) {
+	s := ""
+	switch {
+	case !l.flow:
+		s = lineStyle(l.geom, i)
+	case i == 0:
+		s = flowStyle(l.geom, true)
+		l.first = l.divs[0]
+	default:
+		s = flowStyle(l.geom, false)
+	}
+	l.divs[i].Call("setAttribute", "style", s)
+}
+
+// writeLine writes the text of line i into its div, as spans on the grid.
+func (l *layer) writeLine(i int) {
+	d := l.divs[i]
+	l.drawn[i] = l.lines[i]
+	d.Set("textContent", "")
+	for _, sp := range planLine(l.lines[i], l.geom.Cell, l.width) {
+		s := doc().Call("createElement", "span")
+		s.Get("style").Set("letterSpacing", px(sp.Spacing)+"px")
+		s.Set("textContent", sp.Text)
+		d.Call("appendChild", s)
+	}
+}
+
+// renderAll writes every line, restyled: the geometry changed, or the layer
+// was reset.
+func (l *layer) renderAll() {
 	l.truncateTo(len(l.lines))
-	for _, i := range rewrite {
-		var d js.Value
-		if i < len(l.divs) {
-			d = l.divs[i]
-		} else {
-			d = doc().Call("createElement", "div")
+	l.first = js.Value{}
+	for i := range l.lines {
+		if i >= len(l.divs) {
+			d := doc().Call("createElement", "div")
 			l.el.Call("appendChild", d)
 			l.divs = append(l.divs, d)
 			l.drawn = append(l.drawn, "")
-			restyle = true
 		}
-		if restyle {
-			d.Call("setAttribute", "style", lineStyle(l.geom, i))
+		l.style(i)
+		l.writeLine(i)
+	}
+}
+
+// splice applies a [lineEdit]: the lines of the splice are rewritten, inserted
+// or removed, and no other line element is touched in the flow layout. Where
+// the lines are placed one by one, the lines after the splice get their new
+// top, a style and nothing else.
+func (l *layer) splice(at, del, ins int) {
+	prev := l.first // the div that carries the text's top offset, before the splice
+	for k := 0; k < min(del, ins); k++ {
+		l.writeLine(at + k)
+	}
+	for k := del; k < ins; k++ {
+		i := at + k
+		d := doc().Call("createElement", "div")
+		if i < len(l.divs) {
+			l.el.Call("insertBefore", d, l.divs[i])
+		} else {
+			l.el.Call("appendChild", d)
 		}
-		l.drawn[i] = l.lines[i]
-		d.Set("textContent", "")
-		for _, sp := range planLine(l.lines[i], l.geom.Cell, l.width) {
-			s := doc().Call("createElement", "span")
-			s.Get("style").Set("letterSpacing", px(sp.Spacing)+"px")
-			s.Set("textContent", sp.Text)
-			d.Call("appendChild", s)
+		l.divs = slices.Insert(l.divs, i, d)
+		l.drawn = slices.Insert(l.drawn, i, "")
+		l.style(i)
+		l.writeLine(i)
+	}
+	for k := ins; k < del; k++ {
+		l.divs[at+ins].Call("remove")
+		l.divs = slices.Delete(l.divs, at+ins, at+ins+1)
+		l.drawn = slices.Delete(l.drawn, at+ins, at+ins+1)
+	}
+	switch {
+	case ins == del:
+	case !l.flow:
+		for i := at + ins; i < len(l.divs); i++ {
+			l.style(i)
+		}
+	case len(l.divs) > 0 && !l.divs[0].Equal(prev):
+		// The first line is another element: it has the offset of the text's
+		// top (style(0) is idempotent), and the one that had it, if it is still
+		// in the layer, loses it.
+		l.style(0)
+		if prev.Truthy() && prev.Get("parentNode").Truthy() {
+			prev.Call("setAttribute", "style", flowStyle(l.geom, false))
 		}
 	}
 }

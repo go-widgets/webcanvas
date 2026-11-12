@@ -344,14 +344,45 @@ func relSel(off, start int, text string) int {
 	return min(max(off-start, 0), textinput.Len(text))
 }
 
-// lineChange lists the indexes of next whose line differs from old, compared
-// index by index (a line's top is its index): typing in one line changes one
-// line, an inserted line changes the rest.
-func lineChange(old, next []string) (rewrite []int) {
-	for i, l := range next {
-		if i >= len(old) || old[i] != l {
-			rewrite = append(rewrite, i)
-		}
+// lineEdit is the one splice that turns old into next: the del lines of old
+// from index at are replaced by the ins lines of next from the same index, and
+// every line before at and after the splice is the same. It is the longest
+// common prefix and then the longest common suffix, so typing in a line is a
+// splice of 1 for 1, Enter and a paste of lines are 1 for 1+k, Backspace at a
+// line start is 2 for 1, and the lines after the splice are not touched: their
+// elements only move, which in the flow layout costs nothing.
+func lineEdit(old, next []string) (at, del, ins int) {
+	n := min(len(old), len(next))
+	for at < n && old[at] == next[at] {
+		at++
 	}
-	return rewrite
+	s := 0
+	for s < n-at && old[len(old)-1-s] == next[len(next)-1-s] {
+		s++
+	}
+	return at, len(old) - at - s, len(next) - at - s
+}
+
+// flowOK says that the lines may be laid out in the normal flow, one block
+// after the other, so that inserting or removing a line moves the rest without
+// touching it. A browser keeps lengths on a grid of 1/64 px (Blink's
+// LayoutUnit): a pitch off that grid would be rounded the same way on every
+// line, and the error would add up down the document. Then the lines are
+// placed one by one instead, each at its own top.
+func (g layerGeom) flowOK() bool {
+	p := g.Pitch * 64
+	return math.Abs(p-math.Round(p)) < 1e-6 && math.Abs(g.H*64-math.Round(g.H*64)) < 1e-6 && g.Pitch < 1<<20
+}
+
+// flowStyle is the style of a line div in the flow layout: a block of the
+// pitch's height, the text one line high at its top. The first line carries the
+// offset of the text's top (the layer is a block formatting context, so the
+// margin does not collapse through it).
+func flowStyle(g layerGeom, first bool) string {
+	top := "0"
+	if first {
+		top = px(g.Y0) + "px"
+	}
+	return "display:block;margin:" + top + " 0 0 " + px(g.X0) + "px;padding:0;border:0;height:" + px(g.Pitch) +
+		"px;line-height:" + px(g.H) + "px;font-size:" + px(g.FontSize()) + "px;white-space:pre"
 }

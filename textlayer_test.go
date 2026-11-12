@@ -3,6 +3,7 @@
 package webcanvas
 
 import (
+	"math/rand/v2"
 	"reflect"
 	"strings"
 	"testing"
@@ -271,18 +272,63 @@ func TestCompositionEdit(t *testing.T) {
 	}
 }
 
-func TestLineChange(t *testing.T) {
+func TestLineEdit(t *testing.T) {
 	old := []string{"a", "b", "c"}
-	if got := lineChange(old, []string{"a", "B", "c"}); !reflect.DeepEqual(got, []int{1}) {
-		t.Fatalf("one: %v", got)
+	for _, c := range []struct {
+		name         string
+		next         []string
+		at, del, ins int
+	}{
+		{"one line", []string{"a", "B", "c"}, 1, 1, 1},
+		{"enter in b", []string{"a", "b1", "b2", "c"}, 1, 1, 2},
+		{"insert a line", []string{"a", "x", "b", "c"}, 1, 0, 1},
+		{"same", old, 3, 0, 0},
+		{"shorter", []string{"a"}, 1, 2, 0},
+		{"join b and c", []string{"a", "bc"}, 1, 2, 1},
+		{"paste 5 lines", []string{"a", "b1", "p", "q", "r", "b2", "c"}, 1, 1, 5},
+		{"empty to text", []string{"x"}, 0, 3, 1},
+		{"text to empty", nil, 0, 3, 0},
+		{"grow at the end", []string{"a", "b", "c", "d"}, 3, 0, 1},
+	} {
+		at, del, ins := lineEdit(old, c.next)
+		if at != c.at || del != c.del || ins != c.ins {
+			t.Errorf("%s: got (%d,%d,%d), want (%d,%d,%d)", c.name, at, del, ins, c.at, c.del, c.ins)
+		}
 	}
-	if got := lineChange(old, []string{"a", "x", "b", "c"}); !reflect.DeepEqual(got, []int{1, 2, 3}) {
-		t.Fatalf("insert: %v", got)
+	// Applying the splice to old gives next, on a few random edits.
+	r := rand.New(rand.NewPCG(1, 2))
+	for i := 0; i < 500; i++ {
+		a := make([]string, r.IntN(6))
+		for j := range a {
+			a[j] = string(rune('a' + r.IntN(3)))
+		}
+		b := make([]string, r.IntN(6))
+		for j := range b {
+			b[j] = string(rune('a' + r.IntN(3)))
+		}
+		at, del, ins := lineEdit(a, b)
+		got := append(append(append([]string{}, a[:at]...), b[at:at+ins]...), a[at+del:]...)
+		if !reflect.DeepEqual(got, append([]string{}, b...)) && (len(got) != 0 || len(b) != 0) {
+			t.Fatalf("splice of %v to %v gave %v", a, b, got)
+		}
 	}
-	if got := lineChange(old, old); got != nil {
-		t.Fatalf("same: %v", got)
+}
+
+func TestFlowLayout(t *testing.T) {
+	if !(layerGeom{Pitch: 18, H: 18}).flowOK() || !(layerGeom{Pitch: 9.5, H: 9}).flowOK() {
+		t.Error("a pitch on the 1/64 grid must flow")
 	}
-	if got := lineChange(old, []string{"a"}); got != nil {
-		t.Fatalf("shorter: %v", got)
+	if (layerGeom{Pitch: 37 / 3.0, H: 12}).flowOK() || (layerGeom{Pitch: 12, H: 0.3}).flowOK() {
+		t.Error("a pitch off the grid must be placed line by line")
+	}
+	g := layerGeom{X0: 1, Y0: 2, Cell: 8, Pitch: 10, H: 9}
+	first, rest := flowStyle(g, true), flowStyle(g, false)
+	for _, w := range []string{"display:block", "height:10.00000px", "line-height:9.00000px", "font-size:6.75000px", "white-space:pre", "margin:2.00000px 0 0 1.00000px"} {
+		if !strings.Contains(first, w) {
+			t.Errorf("first %q lacks %q", first, w)
+		}
+	}
+	if !strings.Contains(rest, "margin:0 0 0 1.00000px") || strings.Contains(rest, "position:absolute") {
+		t.Errorf("rest %q", rest)
 	}
 }
