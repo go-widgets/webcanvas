@@ -205,6 +205,7 @@ func (l *layer) renderAll() {
 // the lines are placed one by one, the lines after the splice get their new
 // top, a style and nothing else.
 func (l *layer) splice(at, del, ins int) {
+	prev := l.first // the div that carries the text's top offset, before the splice
 	for k := 0; k < min(del, ins); k++ {
 		l.writeLine(at + k)
 	}
@@ -232,13 +233,13 @@ func (l *layer) splice(at, del, ins int) {
 		for i := at + ins; i < len(l.divs); i++ {
 			l.style(i)
 		}
-	case len(l.divs) > 0 && !l.divs[0].Equal(l.first):
-		// The first line is another element: it takes the offset of the text's
-		// top, and the one that had it (now second, if it is still there) loses it.
-		old := l.first
+	case len(l.divs) > 0 && !l.divs[0].Equal(prev):
+		// The first line is another element: it has the offset of the text's
+		// top (style(0) is idempotent), and the one that had it, if it is still
+		// in the layer, loses it.
 		l.style(0)
-		if old.Truthy() && at == 0 && del == 0 && ins < len(l.divs) {
-			l.style(ins)
+		if prev.Truthy() && prev.Get("parentNode").Truthy() {
+			prev.Call("setAttribute", "style", flowStyle(l.geom, false))
 		}
 	}
 }

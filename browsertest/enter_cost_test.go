@@ -67,3 +67,48 @@ func TestTextLayerEnterTouchesBoundedLines(t *testing.T) {
 		t.Fatalf("one Enter touched %g line elements on 2000 lines and %g on 200: the work grows with the document", big, small)
 	}
 }
+
+// An insertion before line 0 must hand the text's top offset to the new first
+// line: every line sits one pitch under the one before it, and line 0 stays put.
+func TestTextLayerInsertBeforeFirstLineKeepsThePitch(t *testing.T) {
+	const tops = `[...document.querySelector('[data-webcanvas-layer]').children].map(d => d.getBoundingClientRect().top)`
+	for name, press := range map[string]string{
+		"enter": ``,
+		"paste": `(() => { const dt = new DataTransfer(); dt.setData("text/plain", "x\ny\n");
+			document.activeElement.dispatchEvent(new InputEvent("beforeinput", {inputType: "insertFromPaste", dataTransfer: dt, bubbles: true, cancelable: true})); })()`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := textPage(t, 1)
+			setText(t, ctx, "aaa\nbbb\nccc")
+			ev[any](t, ctx, `setFocus(true)`)
+			time.Sleep(300 * time.Millisecond)
+			ev[any](t, ctx, `setSelection(0, 0)`)
+			time.Sleep(100 * time.Millisecond)
+			before := ev[[]float64](t, ctx, tops)
+			pitch := before[1] - before[0]
+			if press == "" {
+				for _, typ := range []input.DispatchKeyEventType{input.DispatchKeyEventTypeRawKeyDown, input.DispatchKeyEventTypeKeyUp} {
+					p := input.DispatchKeyEventParams{Type: typ, Key: "Enter", Code: "Enter", WindowsVirtualKeyCode: 13}
+					if _, err := chromedp.Call(ctx, input.DispatchKeyEvent, p); err != nil {
+						t.Fatal(err)
+					}
+				}
+			} else {
+				ev[any](t, ctx, press)
+			}
+			time.Sleep(400 * time.Millisecond)
+			after := ev[[]float64](t, ctx, tops)
+			if len(after) <= len(before) {
+				t.Fatalf("the press added no line: %v -> %v", before, after)
+			}
+			if after[0] != before[0] {
+				t.Errorf("line 0 moved: %v -> %v", before, after)
+			}
+			for i := 1; i < len(after); i++ {
+				if d := after[i] - after[i-1]; d < pitch-0.05 || d > pitch+0.05 {
+					t.Errorf("gap %d is %g, want the pitch %g: %v", i, d, pitch, after)
+				}
+			}
+		})
+	}
+}
