@@ -97,3 +97,5 @@ jobs:
           grep -q -- '--- PASS: TestPasteShortcutWithoutPasteEventIsDeliveredOnce' browser.log
           grep -q -- '--- PASS: TestPasteShortcutWithoutPasteEventReadsTheClipboard' browser.log
           grep -q -- '--- PASS: TestCopyReachesTheBrowsersClipboard' browser.log
+          grep -q -- '--- PASS: TestTheWheelOverTheTextLayerReachesTheScene' browser.log
+          grep -q -- '--- PASS: TestSurfaceResizeIsPerSurface' browser.log

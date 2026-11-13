@@ -106,6 +106,7 @@ type scene struct {
 	m       *model
 	dpr     float64
 	focused bool
+	consume bool
 	chars   int
 	keys    []string
 }
@@ -147,6 +148,19 @@ func (s *scene) KeyDown(k string) bool {
 	return false
 }
 
+// Scroll is a webcanvas.ScrollConsumer: it records every wheel it is given in
+// window.__wheels as [dx, dy], and uses the wheel (the page must not scroll)
+// only after setConsume(true).
+func (s *scene) Scroll(x, y, dx, dy int) (repaint, consumed bool) {
+	w := js.Global().Get("__wheels")
+	if w.Type() != js.TypeObject {
+		w = js.Global().Get("Array").New()
+		js.Global().Set("__wheels", w)
+	}
+	w.Call("push", []any{dx, dy})
+	return false, s.consume
+}
+
 func (s *scene) A11yNodes() []webcanvas.A11yNode {
 	w, h := s.Size()
 	return []webcanvas.A11yNode{{Key: "code", Role: "textbox", Name: "Go cell 1", Value: s.m.text,
@@ -182,6 +196,10 @@ func main() {
 			surf.Focus()
 		}
 		surf.Refresh()
+		return nil
+	}))
+	g.Set("setConsume", js.FuncOf(func(_ js.Value, a []js.Value) any {
+		sc.consume = a[0].Bool()
 		return nil
 	}))
 	g.Set("setSelection", js.FuncOf(func(_ js.Value, a []js.Value) any {
