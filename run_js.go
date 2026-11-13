@@ -69,6 +69,18 @@ type Surface struct {
 	all       listeners // everything but the keyboard
 	keys      listeners // the keyboard group, rebound by bindKeys
 	refresh   func()
+	resize    func() // nil unless the scene is a [Resizer]
+}
+
+// Resize lays this surface out again at the canvas's current CSS box, as a
+// window resize does, and only this surface: a page that holds many canvases
+// and changes the size of one (an editor whose text grew a line) does not make
+// the others reallocate their frames. It does nothing for a scene that is not
+// a [Resizer], and after Close.
+func (s *Surface) Resize() {
+	if s.resize != nil {
+		s.resize()
+	}
 }
 
 // Refresh draws a frame now and, for an [A11yAware] scene, updates the
@@ -433,7 +445,7 @@ func MountWith(canvas js.Value, app App, p Presenter) *Surface {
 	// untouched otherwise. {passive:false}: without it preventDefault is a no-op
 	// wherever the browser defaults wheel listeners to passive.
 	if hasWheel(app) {
-		on(&s.all, canvas, "wheel", map[string]any{"passive": false}, func(ev js.Value) {
+		onWheel := func(ev js.Value) {
 			tellModifiers(app, mods(ev))
 			x, y := coords(ev)
 			mode := ev.Get("deltaMode").Int()
@@ -446,7 +458,16 @@ func MountWith(canvas js.Value, app App, p Presenter) *Surface {
 			if r.Repaint {
 				render()
 			}
-		})
+		}
+		on(&s.all, canvas, "wheel", map[string]any{"passive": false}, onWheel)
+		// The text layer of an [A11yAware] scene lies over the canvas (it is what
+		// find-in-page and selection reach), so the pointer is over the layer and
+		// not the canvas: the same listener on the mirror's host hears the wheel a
+		// layer would otherwise swallow, and the scene decides as it does over the
+		// canvas.
+		if mir != nil {
+			on(&s.all, mir.host, "wheel", map[string]any{"passive": false}, onWheel)
+		}
 	}
 
 	// Optional viewport tracking: a [Resizer] scene fills the browser window and
@@ -481,6 +502,11 @@ func MountWith(canvas js.Value, app App, p Presenter) *Surface {
 				mir.force = true // a new size is never throttled
 			}
 			render()
+		}
+		s.resize = func() {
+			if !closed.Load() {
+				guard(resize)
+			}
 		}
 		on(&s.all, js.Global(), "resize", nil, func(js.Value) { resize() })
 		// Fit the canvas to the viewport once, now, so the app opens full-page

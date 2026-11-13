@@ -22,6 +22,7 @@ const textIndex = `<!doctype html><meta charset="utf-8">
 <p id="before">Prose before the cell.</p>
 <canvas id="screen"></canvas>
 <p id="after">Prose after the cell.</p>
+<div style="height:3000px"></div>
 <script src="wasm_exec.js"></script>
 <script>
 const go = new Go();
