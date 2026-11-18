@@ -99,3 +99,4 @@ jobs:
           grep -q -- '--- PASS: TestCopyReachesTheBrowsersClipboard' browser.log
           grep -q -- '--- PASS: TestTheWheelOverTheTextLayerReachesTheScene' browser.log
           grep -q -- '--- PASS: TestSurfaceResizeIsPerSurface' browser.log
+          grep -q -- '--- PASS: TestDamageAwareSceneIsPutByRectangle' browser.log

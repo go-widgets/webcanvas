@@ -112,6 +112,43 @@ Bounds and safety:
 `browsertest/` draws a closed bitmap, then a 2×2 green bitmap scaled into a
 4×4 corner, and reads the pixels back.
 
+**Repainting only what changed.** Without help, every frame is `Draw` of the
+whole scene, a copy of the whole framebuffer into the browser and a
+`putImageData` of the whole canvas, even when one caret blinked or only a
+guest's frame in a `Layer` is new. A scene that knows what it changed
+implements `DrawDamaged(buf []byte) []Rect` (`DamageDrawer`), and the host then
+copies and puts only those rectangles (`putImageData`'s dirty-rectangle
+arguments). It is the contract go-widgets/window's `DamageRenderer` gives a
+desktop host, in the browser's terms: the scene repaints just what changed into
+a framebuffer that persists between frames and returns the rectangles it
+repainted, as `toolkit.Rect` (`webcanvas.Rect` is the same type); an **empty**
+result means nothing changed and nothing is put. `Draw` still runs for the first
+frame and after every resize. A scene that does not implement it behaves exactly
+as before.
+
+Layers are always drawn again (the image behind a handle can change without the
+handle doing so), but they cost no scene repaint and no `putImageData`: a frame
+with no damage and opaque layers puts nothing. A layer that **moved, shrank or
+went** has its old rectangle put back from the scene buffer; a layer with
+`Alpha < 1`, or whose image may have transparent pixels (`Opaque` false, the
+default), has the scene put back under it on every frame, so it never stacks on
+its own previous frame. `Opaque: true` promises every pixel is opaque and is
+what lets a still guest frame cost nothing.
+
+Measured under `GOOS=js` in node, 1280×800, a fake 2D context (so the browser's
+own `putImageData` time, which only widens the gap, is not in it), five
+interleaved rounds:
+
+| frame | before (whole) | after |
+| --- | --- | --- |
+| one 120×40 widget changes | 2.89 ms | 0.031 ms |
+| no damage, one opaque 800×600 layer | 2.90 ms | 0.021 ms |
+
+`present_test.go` checks the canvas against a full repaint, pixel for pixel,
+through moving, fading and translucent layers; `browsertest/` counts
+`putImageData` calls and their rectangles in Chrome. The `webcanvas/gpu`
+presenter redraws the scene on the GPU every frame and does not use it.
+
 **Windows over content the host draws as DOM.** A scene may draw some of its
 content as real DOM rather than into the canvas — a page of text the browser
 lays out and the reader can select, a video, an `<iframe>` — and still paint

@@ -132,6 +132,55 @@ func on(l *listeners, target js.Value, name string, opts any, fn func(ev js.Valu
 	})
 }
 
+// canvasTarget is the 2D canvas a frame is put on.
+type canvasTarget struct {
+	ctx, imageData, dst js.Value
+	buf                 []byte
+	w, h                int
+}
+
+// Put copies the scene buffer's pixels inside r into the ImageData and puts
+// them on the canvas at the same place. The whole canvas is one copy and one
+// putImageData; a part copies only its own bytes -- one span from its first
+// row to its last when it is wide, row by row when it is narrow, so a thin
+// tall rectangle does not drag the rows' other pixels along -- and puts only
+// that dirty rectangle (CanvasRenderingContext2D.putImageData's last four
+// arguments).
+func (t *canvasTarget) Put(r Rect) {
+	if r.X == 0 && r.Y == 0 && r.W == t.w && r.H == t.h {
+		js.CopyBytesToJS(t.dst, t.buf)
+		t.ctx.Call("putImageData", t.imageData, 0, 0)
+		return
+	}
+	stride := t.w * 4
+	if r.W*64 >= stride {
+		from, to := r.Y*stride+r.X*4, (r.Y+r.H-1)*stride+(r.X+r.W)*4
+		js.CopyBytesToJS(t.dst.Call("subarray", from, to), t.buf[from:to])
+	} else {
+		for y := r.Y; y < r.Y+r.H; y++ {
+			from, to := y*stride+r.X*4, y*stride+(r.X+r.W)*4
+			js.CopyBytesToJS(t.dst.Call("subarray", from, to), t.buf[from:to])
+		}
+	}
+	t.ctx.Call("putImageData", t.imageData, 0, 0, r.X, r.Y, r.W, r.H)
+}
+
+// DrawLayer draws one layer under its own net: a closed ImageBitmap throws, and
+// costs its own layer only.
+func (t *canvasTarget) DrawLayer(l Layer) {
+	v, ok := l.Image.Handle().(js.Value)
+	if !ok {
+		return
+	}
+	guard(func() {
+		t.ctx.Set("globalAlpha", l.Alpha)
+		t.ctx.Set("imageSmoothingEnabled", true)
+		t.ctx.Set("imageSmoothingQuality", "high")
+		t.ctx.Call("drawImage", v, l.X, l.Y, l.W, l.H)
+	})
+	t.ctx.Set("globalAlpha", 1)
+}
+
 // Mount puts app on canvas and returns at once. Every listener is the
 // surface's own: pointer and wheel events on the canvas, keys on the element
 // that has focus (the canvas, made focusable with tabindex when the page gave
@@ -171,6 +220,7 @@ func MountWith(canvas js.Value, app App, p Presenter) *Surface {
 	var (
 		ctx, imageData, dst js.Value
 		local               []byte
+		comp                = newComposer()
 	)
 	// alloc sizes the 2D path's framebuffer trio; a presented canvas has none.
 	alloc := func() {
@@ -183,6 +233,7 @@ func MountWith(canvas js.Value, app App, p Presenter) *Surface {
 		local = make([]byte, 4*w*h)
 		imageData = ctx.Call("createImageData", w, h)
 		dst = imageData.Get("data")
+		comp.reset() // a new framebuffer: its first frame is a whole one
 	}
 	alloc()
 
@@ -198,24 +249,9 @@ func MountWith(canvas js.Value, app App, p Presenter) *Surface {
 			p.Frame(app, w, h)
 			return
 		}
-		app.Draw(local)
-		js.CopyBytesToJS(dst, local)
-		ctx.Call("putImageData", imageData, 0, 0)
-		// A [Layered] scene's images go over the frame, each under its own
-		// net: a closed ImageBitmap throws, and costs its own layer only.
-		for _, l := range layersOf(app, w, h) {
-			v, ok := l.Image.Handle().(js.Value)
-			if !ok {
-				continue
-			}
-			guard(func() {
-				ctx.Set("globalAlpha", l.Alpha)
-				ctx.Set("imageSmoothingEnabled", true)
-				ctx.Set("imageSmoothingQuality", "high")
-				ctx.Call("drawImage", v, l.X, l.Y, l.W, l.H)
-			})
-			ctx.Set("globalAlpha", 1)
-		}
+		// The composer decides what to draw, copy and put (see present.go): a
+		// [DamageDrawer] scene's damage alone, any other scene whole.
+		comp.frame(app, local, w, h, &canvasTarget{ctx: ctx, imageData: imageData, dst: dst, buf: local, w: w, h: h})
 	}
 	render = func() {
 		paint()
