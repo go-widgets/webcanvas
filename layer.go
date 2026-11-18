@@ -26,6 +26,12 @@ type Layer struct {
 	X, Y, W, H int
 	// Alpha is the opacity in (0, 1]; 0 (the zero value) means opaque.
 	Alpha float64
+	// Opaque promises that every pixel of the image is opaque. With Alpha 1 the
+	// layer then replaces what is under it, which lets a [DamageDrawer] scene
+	// redraw the layer alone, without putting the scene's pixels back first.
+	// Left false (an image may have transparent pixels), the host restores the
+	// scene under the layer on every frame, which is always correct.
+	Opaque bool
 }
 
 // Layered is an optional companion to [App]: a scene that shows images the
