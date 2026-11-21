@@ -5,10 +5,10 @@ go 1.27.3
 replace github.com/go-widgets/webcanvas => ../
 
 require (
-	github.com/chromedp/cdproto v0.160.3
-	github.com/chromedp/chromedp v0.23.1
+	github.com/chromedp/cdproto v0.160.8
+	github.com/chromedp/chromedp v0.24.0
 	github.com/go-widgets/textinput v0.1.1
-	github.com/go-widgets/webcanvas v0.14.3
+	github.com/go-widgets/webcanvas v0.15.0
 )
 
 require (
