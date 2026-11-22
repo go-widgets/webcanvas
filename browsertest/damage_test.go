@@ -55,11 +55,13 @@ func TestDamageAwareSceneIsPutByRectangle(t *testing.T) {
 	}
 	frame := func(js string) {
 		t.Helper()
+		// Read the count BEFORE asking: the frame is an animation frame away, and
+		// a count read after the call can already include its draw.
+		before := mustInt(t, ctx, `window.__draws2d`)
 		if _, err := chromedp.Run(ctx, chromedp.Evaluate[any](js)); err != nil {
 			t.Fatal(err)
 		}
-		// The frame is an animation frame away; wait for it by its layer draw.
-		before := mustInt(t, ctx, `window.__draws2d`)
+		// Wait for the frame by its layer draw.
 		for deadline := time.Now().Add(5 * time.Second); mustInt(t, ctx, `window.__draws2d`) == before; time.Sleep(20 * time.Millisecond) {
 			if time.Now().After(deadline) {
 				t.Fatal("the frame was never drawn")
