@@ -81,7 +81,7 @@ func TestGPUPresenterSkipsFramesWithoutDamage(t *testing.T) {
 	}
 	frame(`window.__recolor(0, 1)`)
 	p, s, paints, probes, submits := stats()
-	if p != 2 || s != 0 || paints != 2 || probes != 2 || submits <= firstSubmits {
+	if p != 2 || s != 0 || paints != 1 || probes != 2 || submits <= firstSubmits {
 		t.Fatalf("a recoloured box: presented %d skipped %d, Paint %d, PaintDamaged %d, submits %d", p, s, paints, probes, submits)
 	}
 	before := submits
@@ -89,7 +89,7 @@ func TestGPUPresenterSkipsFramesWithoutDamage(t *testing.T) {
 		frame(`window.__idle()`)
 	}
 	p, s, paints, probes, submits = stats()
-	if p != 2 || s != 3 || paints != 2 || probes != 5 || submits != before {
+	if p != 2 || s != 3 || paints != 1 || probes != 5 || submits != before {
 		t.Fatalf("three idle frames: presented %d skipped %d, Paint %d, PaintDamaged %d, submits %d (was %d); want none sent", p, s, paints, probes, submits, before)
 	}
 

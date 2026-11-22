@@ -81,6 +81,7 @@ func (s reporting) PaintDamaged(p painter.Painter) []painter.Rect {
 type target struct {
 	frame, canvas []byte
 	draws, shown  int
+	instances     []int // per Draw: what the renderer was handed
 	fail          error
 	failAt        string
 }
@@ -94,6 +95,7 @@ func (t *target) Draw(l *gpu2d.List) error {
 		return t.fail
 	}
 	t.draws++
+	t.instances = append(t.instances, len(l.Instances()))
 	return l.Rasterize(t.frame)
 }
 
@@ -121,7 +123,8 @@ func newFrames(t *testing.T) *frames {
 func full(t *testing.T, s *scene) []byte {
 	t.Helper()
 	f, tg := newFrames(t), newTarget()
-	if _, err := f.frame(plain{s}, tg); err != nil {
+	cp := *s // Paint counts calls: leave the scene's own count alone
+	if _, err := f.frame(plain{&cp}, tg); err != nil {
 		t.Fatal(err)
 	}
 	return tg.canvas
@@ -169,6 +172,11 @@ func TestAFrameWithNoDamageIsSkipped(t *testing.T) {
 	}
 	if s.probes != len(steps) {
 		t.Fatalf("PaintDamaged called %d times, want once a frame (%d)", s.probes, len(steps))
+	}
+	// Only the first frame is recorded whole: a damaged frame is PaintDamaged's
+	// own recording, which holds fewer instances and never calls Paint.
+	if s.painted != 1 || len(tg.instances) != 3 || tg.instances[1] >= tg.instances[0] {
+		t.Fatalf("Paint called %d times; instances per drawn frame %v; want one whole frame, then a one-box frame smaller than it", s.painted, tg.instances)
 	}
 }
 

@@ -37,7 +37,10 @@ type Painted interface {
 // (RenderDamaged(p, th) []toolkit.Rect): PaintDamaged paints into p only what
 // changed since the previous call, confined to the rectangles it returns, in
 // canvas pixels, and returns them. An EMPTY result means nothing changed, and
-// the presenter then neither records nor presents the frame. RenderDamaged
+// the presenter then neither records nor presents the frame, and a non-empty
+// one is recorded as PaintDamaged painted it: only the damage, over the
+// renderer's persistent target, so PaintDamaged must repaint the ground under
+// the damage as RenderDamaged does. RenderDamaged
 // itself does not fit as is: it takes a *toolkit.Theme, which webcanvas does
 // not own, so a scene wraps it (HostRoot and its theme) in this method.
 //
@@ -86,15 +89,22 @@ func (f *frames) rewind() {
 // presented.
 func (f *frames) frame(app Painted, s sink) (bool, error) {
 	f.rewind()
-	if dp, ok := app.(DamagePainted); ok {
+	dp, reports := app.(DamagePainted)
+	whole := f.whole || !reports
+	if reports {
 		damaged := len(dp.PaintDamaged(f.paint)) > 0
 		if !damaged && !f.whole {
 			return false, nil
 		}
+	}
+	// The recording of a damaged frame is PaintDamaged's own, confined to the
+	// damage; the renderer composites it over its persistent target, which
+	// holds the rest. Any other frame is recorded whole.
+	if whole {
 		f.rewind()
+		app.Paint(f.paint)
 	}
 	f.whole = false
-	app.Paint(f.paint)
 	f.paint.Flush()
 	err := f.list.Err()
 	if err == nil {
