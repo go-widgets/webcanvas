@@ -12,7 +12,6 @@ import (
 	"github.com/go-gfx/gpu2d"
 	gpu2dwebgpu "github.com/go-gfx/gpu2d/webgpu"
 	wg "github.com/go-gfx/webgpu"
-	"github.com/go-widgets/gpupainter"
 	"github.com/go-widgets/webcanvas"
 )
 
@@ -29,10 +28,18 @@ type Presenter struct {
 	dev     *wg.Device
 	r       *gpu2dwebgpu.Renderer
 	surface *wg.Surface
-	list    *gpu2d.List
-	paint   *gpupainter.Painter
+	f       frames
 	w, h    int
+	// Presented counts the frames that reached the canvas; Skipped, those a
+	// DamagePainted scene reported no damage for.
+	Presented, Skipped int
 }
+
+// renderer is the sink a frame goes to: the renderer, then the surface.
+type renderer struct{ p *Presenter }
+
+func (s renderer) Draw(l *gpu2d.List) error { return s.p.r.Draw(l, nil) }
+func (s renderer) Present() error           { return s.p.r.Present(s.p.surface) }
 
 var _ webcanvas.Presenter = (*Presenter)(nil)
 
@@ -97,12 +104,8 @@ func (p *Presenter) build(ctx context.Context, dev *wg.Device, w, h int) error {
 	if p.r != nil {
 		p.r.Destroy() // its memory goes back to the device's quota
 	}
-	p.r, p.list, p.w, p.h = r, l, w, h
-	if p.paint == nil {
-		p.paint = gpupainter.New(l)
-	} else {
-		p.paint.Reset(l)
-	}
+	p.r, p.w, p.h = r, w, h
+	p.f.use(l)
 	return nil
 }
 
@@ -121,16 +124,11 @@ func (p *Presenter) Frame(app webcanvas.App, w, h int) {
 			return
 		}
 	}
-	p.list.Reset()
-	p.paint.Reset(p.list)
-	app.(Painted).Paint(p.paint)
-	p.paint.Flush()
-	err := p.list.Err()
-	if err == nil {
-		err = p.r.Draw(p.list, nil)
-	}
-	if err == nil {
-		err = p.r.Present(p.surface)
+	shown, err := p.f.frame(app.(Painted), renderer{p})
+	if shown {
+		p.Presented++
+	} else {
+		p.Skipped++
 	}
 	p.Err = err
 }

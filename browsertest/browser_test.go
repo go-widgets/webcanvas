@@ -59,7 +59,7 @@ func servePageHTML(t testing.TB, page, html string) string {
 
 func browser(t testing.TB) context.Context {
 	t.Helper()
-	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.Flag("headless", true))
+	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.Flag("headless", true), chromedp.Flag("enable-unsafe-webgpu", true))
 	if p := os.Getenv("CHROME"); p != "" {
 		opts = append(opts, chromedp.ExecPath(p))
 	}

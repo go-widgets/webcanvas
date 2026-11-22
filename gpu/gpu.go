@@ -19,6 +19,8 @@ package gpu
 import (
 	"errors"
 
+	"github.com/go-gfx/gpu2d"
+	"github.com/go-widgets/gpupainter"
 	"github.com/go-widgets/painter"
 	"github.com/go-widgets/webcanvas"
 )
@@ -28,6 +30,80 @@ import (
 type Painted interface {
 	webcanvas.App
 	Paint(p painter.Painter)
+}
+
+// DamagePainted is a [Painted] scene that knows what its last frame changed.
+// It is the browser's form of toolkit's scene.HostRoot.RenderDamaged
+// (RenderDamaged(p, th) []toolkit.Rect): PaintDamaged paints into p only what
+// changed since the previous call, confined to the rectangles it returns, in
+// canvas pixels, and returns them. An EMPTY result means nothing changed, and
+// the presenter then neither records nor presents the frame. RenderDamaged
+// itself does not fit as is: it takes a *toolkit.Theme, which webcanvas does
+// not own, so a scene wraps it (HostRoot and its theme) in this method.
+//
+// The presenter calls PaintDamaged on every frame, the first and the one after
+// a resize included (the result is then ignored: those frames are whole), so
+// that the scene's pending damage is drained as RenderDamaged drains it.
+type DamagePainted interface {
+	Painted
+	PaintDamaged(p painter.Painter) []painter.Rect
+}
+
+// sink is where a frame goes: the renderer (draw the list over the target,
+// present the target on the canvas), or a software target in tests.
+type sink interface {
+	Draw(l *gpu2d.List) error
+	Present() error
+}
+
+// frames is the presenter's per-frame decision, kept free of the browser so
+// that native tests check it pixel for pixel against a full repaint.
+type frames struct {
+	list  *gpu2d.List
+	paint *gpupainter.Painter
+	// whole forces the next frame to be a whole one: no frame yet, or a resize.
+	whole bool
+}
+
+// use records into l from now on; the next frame is a whole one.
+func (f *frames) use(l *gpu2d.List) {
+	f.list, f.whole = l, true
+	if f.paint == nil {
+		f.paint = gpupainter.New(l)
+	} else {
+		f.paint.Reset(l)
+	}
+}
+
+// rewind empties the list for a new recording.
+func (f *frames) rewind() {
+	f.list.Reset()
+	f.paint.Reset(f.list)
+}
+
+// frame shows app on s and reports whether it did: a [DamagePainted] scene
+// with no damage on a frame that is not a whole one is neither recorded nor
+// presented.
+func (f *frames) frame(app Painted, s sink) (bool, error) {
+	f.rewind()
+	if dp, ok := app.(DamagePainted); ok {
+		damaged := len(dp.PaintDamaged(f.paint)) > 0
+		if !damaged && !f.whole {
+			return false, nil
+		}
+		f.rewind()
+	}
+	f.whole = false
+	app.Paint(f.paint)
+	f.paint.Flush()
+	err := f.list.Err()
+	if err == nil {
+		err = s.Draw(f.list)
+	}
+	if err == nil {
+		err = s.Present()
+	}
+	return true, err
 }
 
 // ErrNotPainted reports an App the presenter cannot record: it does not
